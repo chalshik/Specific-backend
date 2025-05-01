@@ -1,11 +1,8 @@
 package com.Specific.Specific.Services;
 
-import com.Specific.Specific.Models.DeeplResponse;
 import com.Specific.Specific.Models.RequestTranslation;
 import com.Specific.Specific.Models.ResponseTranslation;
 import com.Specific.Specific.config.DeeplConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
@@ -14,8 +11,6 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import org.springframework.http.HttpHeaders;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-
 
 @Service
 public class TranslationService {
@@ -48,22 +43,7 @@ public class TranslationService {
                 .header("Authorization", "DeepL-Auth-Key " + DeeplConfig.getAPIKEY())
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
-                .bodyToMono(DeeplResponse.class)
-                .map(response -> {
-                    if (response.getTranslations() != null && !response.getTranslations().isEmpty()) {
-                        DeeplResponse.Translation translation = response.getTranslations().get(0);
-                        return new ResponseTranslation(
-                                translation.getText(),
-                                translation.getDetectedSourceLanguage()
-                        );
-                    }
-                    return new ResponseTranslation("", "");
-                })
-                .onErrorResume(WebClientResponseException.class, e -> {
-                    return Mono.error(new RuntimeException("Error calling DeepL API: " + e.getMessage()));
-                })
-                .onErrorResume(Exception.class, e -> {
-                    return Mono.error(new RuntimeException("Unexpected error: " + e.getMessage()));
-                });
+                .bodyToMono(ResponseTranslation.class);
+        // The class now auto-maps from DeepL format to our response format in the setTranslations method
     }
 }
