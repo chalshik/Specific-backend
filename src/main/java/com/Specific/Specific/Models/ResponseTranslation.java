@@ -1,7 +1,10 @@
 package com.Specific.Specific.Models;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonRootName;
+
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -31,7 +34,7 @@ public class ResponseTranslation {
     public String getDet_lang() {
         return det_lang;
     }
-    
+
     public List<Translation> getTranslations() {
         return translations;
     }

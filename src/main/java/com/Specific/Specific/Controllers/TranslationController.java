@@ -17,7 +17,7 @@ public class TranslationController {
     public Mono<ResponseTranslation> getTranslation(@RequestBody RequestTranslation requestTranslation) {
         return translationService.getTranslation(requestTranslation);
     }
-    
+
     @GetMapping
     public String testEndpoint() {
         return "Translation API is working!";
