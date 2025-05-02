@@ -3,6 +3,7 @@ package com.Specific.Specific.Services;
 import com.Specific.Specific.Models.RequestTranslation;
 import com.Specific.Specific.Models.ResponseTranslation;
 import com.Specific.Specific.config.DeeplConfig;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
@@ -19,14 +20,18 @@ import org.springframework.http.HttpHeaders;
 @Service
 public class TranslationService {
     private final WebClient webClient;
+    private final DeeplConfig deeplConfig;
     
     /**
      * Create a new TranslationService with configured WebClient.
      * 
      * @param webClientBuilder Spring's WebClient builder
+     * @param deeplConfig Configuration for DeepL API
      */
-    public TranslationService(WebClient.Builder webClientBuilder) {
-        this.webClient = webClientBuilder.baseUrl(DeeplConfig.getApiUrl()).build();
+    @Autowired
+    public TranslationService(WebClient.Builder webClientBuilder, DeeplConfig deeplConfig) {
+        this.deeplConfig = deeplConfig;
+        this.webClient = webClientBuilder.baseUrl(deeplConfig.getApiUrl()).build();
     }
     
     /**
@@ -57,7 +62,7 @@ public class TranslationService {
         return webClient.post()
                 .uri("") // The path after the base URL
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-                .header("Authorization", "DeepL-Auth-Key " + DeeplConfig.getAPIKEY())
+                .header("Authorization", "DeepL-Auth-Key " + deeplConfig.getApiKey())
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
                 .bodyToMono(ResponseTranslation.class);

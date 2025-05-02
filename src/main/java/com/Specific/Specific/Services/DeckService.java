@@ -12,4 +12,8 @@ public class DeckService {
     public Deck addDeck(Deck deck){
         return deckRepo.save(deck);
     }
+    public Deck deleteDeck(Deck deck){
+        deckRepo.delete(deck);
+        return deck;
+    }
 }

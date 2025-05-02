@@ -1,12 +1,21 @@
 package com.Specific.Specific.config;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
 public class DeeplConfig {
-    private static String APIKEY = "83504ff5-0621-4b81-81c5-d050c0f67f9b:fx";
-    private static final String API_URL = "https://api-free.deepl.com/v2/translate";
-     static public String getAPIKEY() {
-        return APIKEY;
+    @Value("${deepl.api.key:}")
+    private String apiKey;
+    
+    @Value("${deepl.api.url:https://api-free.deepl.com/v2/translate}")
+    private String apiUrl;
+    
+    public String getApiKey() {
+        return apiKey;
     }
-    static public String getApiUrl(){
-         return API_URL;
+    
+    public String getApiUrl() {
+        return apiUrl;
     }
 }

@@ -8,25 +8,19 @@ public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
+    
     private String username;
-    @Column(unique = true)
-    private String Uid;
+    
+    @Column(unique = true, nullable = false)
+    private String firebaseUid;  // Renamed from "Uid" for consistency
 
     // Constructors
     public User() {
     }
 
-    public User(long id, String username) {
-        this.id = id;
+    public User(String username, String firebaseUid) {
         this.username = username;
-    }
-
-    public String getUid() {
-        return Uid;
-    }
-
-    public void setUid(String uid) {
-        Uid = uid;
+        this.firebaseUid = firebaseUid;
     }
 
     // Getters and Setters
@@ -44,5 +38,13 @@ public class User {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getFirebaseUid() {
+        return firebaseUid;
+    }
+
+    public void setFirebaseUid(String firebaseUid) {
+        this.firebaseUid = firebaseUid;
     }
 }

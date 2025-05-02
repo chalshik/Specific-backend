@@ -57,9 +57,16 @@ public class UserService {
         user.setUsername(username);
         return userRepo.save(user);
     }
-    public User findUserByEmail(String firebaseId){
-        User user = userRepo.findByEmail(firebaseId)
+    
+    /**
+     * Find a user by Firebase UID.
+     * 
+     * @param firebaseUid The Firebase UID
+     * @return The user
+     * @throws UserNotFoundException if user not found
+     */
+    public User findUserByFirebaseUid(String firebaseUid) {
+        return userRepo.findByFirebaseUid(firebaseUid)
                 .orElseThrow(() -> new UserNotFoundException("User with this Firebase UID not found"));
-        return user;
     }
 }
