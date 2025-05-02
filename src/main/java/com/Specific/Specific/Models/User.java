@@ -9,6 +9,8 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
     private String username;
+    @Column(unique = true)
+    private String Uid;
 
     // Constructors
     public User() {
@@ -17,6 +19,14 @@ public class User {
     public User(long id, String username) {
         this.id = id;
         this.username = username;
+    }
+
+    public String getUid() {
+        return Uid;
+    }
+
+    public void setUid(String uid) {
+        Uid = uid;
     }
 
     // Getters and Setters

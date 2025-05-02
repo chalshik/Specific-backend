@@ -1,9 +1,12 @@
 package com.Specific.Specific.Services;
 
+import com.Specific.Specific.Except.UserNotFoundException;
 import com.Specific.Specific.Models.User;
 import com.Specific.Specific.Repository.UserRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 /**
  * Service for managing user accounts.
@@ -53,5 +56,10 @@ public class UserService {
         // Update username and save
         user.setUsername(username);
         return userRepo.save(user);
+    }
+    public User findUserByEmail(String firebaseId){
+        User user = userRepo.findByEmail(firebaseId)
+                .orElseThrow(() -> new UserNotFoundException("User with this Firebase UID not found"));
+        return user;
     }
 }
