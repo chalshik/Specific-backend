@@ -1,10 +1,6 @@
 package com.Specific.Specific.Controllers;
 
-import com.Specific.Specific.Except.BookNotFoundException;
-import com.Specific.Specific.Except.CardNotFoundException;
-import com.Specific.Specific.Except.DeckNotFoundException;
-import com.Specific.Specific.Except.UnauthorizedAccessException;
-import com.Specific.Specific.Except.UserNotFoundException;
+import com.Specific.Specific.Except.*;
 import com.Specific.Specific.Models.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.FieldError;
@@ -44,6 +40,18 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getMessage());
     }
     
+    @ExceptionHandler(ReviewNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse handleReviewNotFound(ReviewNotFoundException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
+    @ExceptionHandler(InvalidReviewRatingException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse handleInvalidReviewRating(InvalidReviewRatingException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
     @ExceptionHandler(UnauthorizedAccessException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ApiResponse handleUnauthorizedAccess(UnauthorizedAccessException ex) {
@@ -60,6 +68,12 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining(", "));
         
         return ApiResponse.error("Validation failed: " + errorMessage);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse handleIllegalArgument(IllegalArgumentException ex) {
+        return ApiResponse.error(ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
