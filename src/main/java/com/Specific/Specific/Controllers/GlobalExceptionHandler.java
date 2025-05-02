@@ -1,5 +1,6 @@
 package com.Specific.Specific.Controllers;
 
+import com.Specific.Specific.Except.BookNotFoundException;
 import com.Specific.Specific.Except.CardNotFoundException;
 import com.Specific.Specific.Except.DeckNotFoundException;
 import com.Specific.Specific.Except.UnauthorizedAccessException;
@@ -34,6 +35,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(CardNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiResponse handleCardNotFound(CardNotFoundException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
+    @ExceptionHandler(BookNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse handleBookNotFound(BookNotFoundException ex) {
         return ApiResponse.error(ex.getMessage());
     }
     
