@@ -2,8 +2,9 @@ package com.Specific.Specific.Services;
 
 import com.Specific.Specific.Except.CardNotFoundException;
 import com.Specific.Specific.Models.Card;
-import com.Specific.Specific.Repository.CardRepo;
+import com.Specific.Specific.Models.User;
 import com.Specific.Specific.util.SecurityUtils;
+import com.Specific.Specific.Repository.CardRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -16,94 +17,144 @@ import java.util.List;
 @Service
 public class CardService {
     private final CardRepo cardRepo;
+    private final DeckService deckService;
+    private final BookService bookService;
     private final AuthorizationService authorizationService;
     private final SecurityUtils securityUtils;
     
     @Autowired
-    public CardService(
-            CardRepo cardRepo,
-            AuthorizationService authorizationService,
-            SecurityUtils securityUtils) {
+    public CardService(CardRepo cardRepo, DeckService deckService, BookService bookService, 
+            AuthorizationService authorizationService, SecurityUtils securityUtils) {
         this.cardRepo = cardRepo;
+        this.deckService = deckService;
+        this.bookService = bookService;
         this.authorizationService = authorizationService;
         this.securityUtils = securityUtils;
     }
     
     /**
-     * Add a new flashcard to the database.
+     * Create a new card
      * 
-     * @param card The card entity to save
-     * @return The saved card with generated ID
+     * @param card The card to create
+     * @return The created card
      */
-    public Card addCard(Card card) {
-        // Set current user as owner
-        card.setUser_id(securityUtils.getCurrentUser().getId());
+    public Card createCard(Card card) {
+        // Set the user ID to the current user
+        card.setUserId(securityUtils.getCurrentUser().getId());
+        
+        // Verify that the deck and book exist and belong to the user
+        // This will throw exceptions if not found or not authorized
+        deckService.getDeckById(card.getDeckId());
+        if (card.getBookId() > 0) {
+            bookService.getBookById(card.getBookId());
+        }
+        
         return cardRepo.save(card);
     }
     
     /**
-     * Delete a flashcard from the database.
+     * Get a card by ID
      * 
-     * @param card The card to delete
-     * @return The deleted card
+     * @param id The ID of the card to get
+     * @return The card
+     * @throws CardNotFoundException If the card doesn't exist
      */
-    public Card deleteCard(Card card) {
-        authorizationService.verifyResourceOwner(card.getUser_id());
-        cardRepo.delete(card);
+    public Card getCardById(Long id) throws CardNotFoundException {
+        Card card = cardRepo.findById(id)
+            .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
+        
+        // Verify user has access to this card
+        authorizationService.verifyResourceOwner(card.getUserId());
+        
         return card;
     }
     
     /**
-     * Delete a card by its ID
+     * Get all cards for the current user
      * 
-     * @param cardId The ID of the card to delete
+     * @return List of cards
      */
-    public void deleteCardById(Long cardId) {
-        Card card = findCardById(cardId);
-        deleteCard(card);
+    public List<Card> getUserCards() {
+        User currentUser = securityUtils.getCurrentUser();
+        return cardRepo.findByUserId(currentUser.getId());
     }
     
     /**
-     * Find a card by its ID
-     * 
-     * @param cardId The ID of the card
-     * @return The found card
-     * @throws CardNotFoundException if card not found
-     */
-    public Card findCardById(Long cardId) {
-        return cardRepo.findById(cardId)
-                .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
-    }
-    
-    /**
-     * Find all cards in a deck
+     * Get all cards in a deck
      * 
      * @param deckId The ID of the deck
      * @return List of cards in the deck
      */
-    public List<Card> findCardsByDeckId(Long deckId) {
-        return cardRepo.findByDeck_id(deckId);
+    public List<Card> getCardsByDeck(Long deckId) {
+        // First verify the user has access to this deck
+        deckService.getDeckById(deckId);
+        
+        // Now get all cards for this deck
+        return cardRepo.findByDeckId(deckId);
     }
     
     /**
-     * Update an existing card with new values.
+     * Get all cards in a book
      * 
-     * @param cardId ID of the card to update
-     * @param newCard Card with updated values
-     * @return The updated card
+     * @param bookId The ID of the book
+     * @return List of cards in the book
      */
-    public Card updateCard(Long cardId, Card newCard) {
-        Card existingCard = findCardById(cardId);
+    public List<Card> getCardsByBook(Long bookId) {
+        // First verify the user has access to this book
+        bookService.getBookById(bookId);
         
-        // Verify ownership
-        authorizationService.verifyResourceOwner(existingCard.getUser_id());
+        // Now get all cards for this book
+        return cardRepo.findByBookId(bookId);
+    }
+    
+    /**
+     * Update a card
+     * 
+     * @param id The ID of the card to update
+     * @param cardDetails The updated card details
+     * @return The updated card
+     * @throws CardNotFoundException If the card doesn't exist
+     */
+    public Card updateCard(Long id, Card cardDetails) throws CardNotFoundException {
+        Card existingCard = cardRepo.findById(id)
+            .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
         
-        // Update card fields
-        existingCard.setFront(newCard.getFront());
-        existingCard.setBack(newCard.getBack());
-        existingCard.setContext(newCard.getContext());
+        // Verify user has access to this card
+        authorizationService.verifyResourceOwner(existingCard.getUserId());
         
-        // Save and return updated card
+        // If deck ID has changed, verify the user has access to the new deck
+        if (cardDetails.getDeckId() != existingCard.getDeckId()) {
+            deckService.getDeckById(cardDetails.getDeckId());
+        }
+        
+        // If book ID has changed, verify the user has access to the new book
+        if (cardDetails.getBookId() != existingCard.getBookId() && cardDetails.getBookId() > 0) {
+            bookService.getBookById(cardDetails.getBookId());
+        }
+        
+        // Update fields
+        existingCard.setFront(cardDetails.getFront());
+        existingCard.setBack(cardDetails.getBack());
+        existingCard.setContext(cardDetails.getContext());
+        existingCard.setDeckId(cardDetails.getDeckId());
+        existingCard.setBookId(cardDetails.getBookId());
+        
         return cardRepo.save(existingCard);
+    }
+    
+    /**
+     * Delete a card by ID
+     * 
+     * @param id The ID of the card to delete
+     * @throws CardNotFoundException If the card doesn't exist
+     */
+    public void deleteCard(Long id) throws CardNotFoundException {
+        Card card = cardRepo.findById(id)
+            .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
+        
+        // Verify user has access to this card
+        authorizationService.verifyResourceOwner(card.getUserId());
+        
+        cardRepo.delete(card);
     }
 }

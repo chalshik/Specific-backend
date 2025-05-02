@@ -29,7 +29,7 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
      * Find reviews that are due for a specific user and deck.
      */
     @Query("SELECT r FROM Review r JOIN Card c ON r.cardId = c.id " +
-            "WHERE r.userId = :userId AND c.deck_id = :deckId " +
+            "WHERE r.userId = :userId AND c.deckId = :deckId " +
             "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
     List<Review> findDueReviews(
             @Param("userId") Long userId,
@@ -50,7 +50,7 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
      * Find all reviews for cards from a specific book.
      */
     @Query("SELECT r FROM Review r JOIN Card c ON r.cardId = c.id " +
-            "WHERE c.book_id = :bookId AND r.userId = :userId")
+            "WHERE c.bookId = :bookId AND r.userId = :userId")
     List<Review> findReviewsByBookId(
             @Param("bookId") Long bookId,
             @Param("userId") Long userId
@@ -60,7 +60,7 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
      * Find due reviews for cards from a specific book.
      */
     @Query("SELECT r FROM Review r JOIN Card c ON r.cardId = c.id " +
-            "WHERE c.book_id = :bookId AND r.userId = :userId " +
+            "WHERE c.bookId = :bookId AND r.userId = :userId " +
             "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
     List<Review> findDueReviewsByBookId(
             @Param("bookId") Long bookId,

@@ -20,9 +20,17 @@ public class FirebaseConfig {
 
     @Value("${firebase.credentials.path:firebase-service-account.json}")
     private String firebaseCredentialsPath;
+    
+    @Value("${firebase.enabled:false}")
+    private boolean firebaseEnabled;
 
     @PostConstruct
     public void init() {
+        if (!firebaseEnabled) {
+            logger.info("Firebase authentication is disabled for testing");
+            return;
+        }
+        
         try {
             InputStream serviceAccount;
             

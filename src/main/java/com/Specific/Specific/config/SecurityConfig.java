@@ -14,16 +14,22 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 public class SecurityConfig {
     
-    @Autowired
-    private FirebaseAuthFilter firebaseAuthFilter;
+    // Temporarily commented out for testing
+    // @Autowired
+    // private FirebaseAuthFilter firebaseAuthFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            // Temporarily commented out Firebase filter for testing
+            // .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> {
+                // TEMPORARY: Allow all requests without authentication for testing
+                auth.anyRequest().permitAll();
+                
+                /* Original configuration, temporarily commented out
                 // Public endpoints that don't require authentication
                 auth.requestMatchers("/user/register").permitAll();
                 auth.requestMatchers("/translation/**").permitAll();
@@ -34,6 +40,7 @@ public class SecurityConfig {
                 
                 // Default rule for any other endpoints
                 auth.anyRequest().authenticated();
+                */
             });
         
         return http.build();

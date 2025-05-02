@@ -13,7 +13,7 @@ public class Book {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
     
-    private long user_id;
+    private long userId;
     
     @NotBlank(message = "Title is required")
     @Size(min = 1, max = 255, message = "Title must be between 1 and 255 characters")
@@ -26,9 +26,9 @@ public class Book {
     public Book() {
     }
     
-    public Book(long id, long user_id, String title, String description) {
+    public Book(long id, long userId, String title, String description) {
         this.id = id;
-        this.user_id = user_id;
+        this.userId = userId;
         this.title = title;
         this.description = description;
     }
@@ -42,12 +42,12 @@ public class Book {
         this.id = id;
     }
     
-    public long getUser_id() {
-        return user_id;
+    public long getUserId() {
+        return userId;
     }
     
-    public void setUser_id(long user_id) {
-        this.user_id = user_id;
+    public void setUserId(long userId) {
+        this.userId = userId;
     }
     
     public String getTitle() {

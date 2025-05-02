@@ -27,85 +27,92 @@ public class BookService {
     }
     
     /**
-     * Add a new book for the current user
+     * Create a new book
      *
-     * @param book The book to add
-     * @return The saved book with generated ID
+     * @param book The book to create
+     * @return The created book
      */
-    public Book addBook(Book book) {
+    public Book createBook(Book book) {
         User currentUser = securityUtils.getCurrentUser();
-        book.setUser_id(currentUser.getId());
+        
+        // Set user ID
+        book.setUserId(currentUser.getId());
+        
         return bookRepo.save(book);
     }
     
     /**
-     * Delete a book
+     * Get a book by ID
      *
-     * @param book The book to delete
+     * @param id The ID of the book to get
+     * @return The book
+     * @throws BookNotFoundException If the book doesn't exist
      */
-    public void deleteBook(Book book) {
-        authorizationService.verifyResourceOwner(book.getUser_id());
+    public Book getBookById(Long id) throws BookNotFoundException {
+        Book book = bookRepo.findById(id)
+            .orElseThrow(() -> new BookNotFoundException("Book not found with ID: " + id));
+        
+        // Verify user has access to this book
+        authorizationService.verifyResourceOwner(book.getUserId());
+        
+        return book;
+    }
+    
+    /**
+     * Delete a book by ID
+     *
+     * @param id The ID of the book to delete
+     * @throws BookNotFoundException If the book doesn't exist
+     */
+    public void deleteBook(Long id) throws BookNotFoundException {
+        Book book = bookRepo.findById(id)
+            .orElseThrow(() -> new BookNotFoundException("Book not found with ID: " + id));
+        
+        // Verify user has access to this book
+        authorizationService.verifyResourceOwner(book.getUserId());
+        
         bookRepo.delete(book);
     }
     
     /**
-     * Delete a book by its ID
+     * Get all books for the current user
      *
-     * @param bookId The ID of the book to delete
+     * @return List of books
      */
-    public void deleteBookById(Long bookId) {
-        Book book = findBookById(bookId);
-        deleteBook(book);
-    }
-    
-    /**
-     * Find a book by its ID
-     *
-     * @param bookId The ID of the book
-     * @return The found book
-     * @throws BookNotFoundException if book not found
-     */
-    public Book findBookById(Long bookId) {
-        return bookRepo.findById(bookId)
-                .orElseThrow(() -> new BookNotFoundException("Book with ID " + bookId + " not found"));
-    }
-    
-    /**
-     * Find all books belonging to the current user
-     *
-     * @return List of books belonging to the current user
-     */
-    public List<Book> findCurrentUserBooks() {
+    public List<Book> getUserBooks() {
         User currentUser = securityUtils.getCurrentUser();
-        return bookRepo.findByUser_id(currentUser.getId());
+        return bookRepo.findByUserId(currentUser.getId());
     }
     
     /**
-     * Search for books by title
+     * Search books by title (case insensitive)
      *
      * @param title The title to search for
-     * @return List of books matching the title
+     * @return List of matching books
      */
     public List<Book> searchBooksByTitle(String title) {
+        // This assumes the repository has a method for this
         return bookRepo.findByTitleContainingIgnoreCase(title);
     }
     
     /**
      * Update a book
      *
-     * @param bookId The ID of the book to update
-     * @param newBook The new book data
+     * @param id The ID of the book to update
+     * @param bookDetails The updated book details
      * @return The updated book
+     * @throws BookNotFoundException If the book doesn't exist
      */
-    public Book updateBook(Long bookId, Book newBook) {
-        Book existingBook = findBookById(bookId);
+    public Book updateBook(Long id, Book bookDetails) throws BookNotFoundException {
+        Book existingBook = bookRepo.findById(id)
+            .orElseThrow(() -> new BookNotFoundException("Book not found with ID: " + id));
         
-        // Verify ownership
-        authorizationService.verifyResourceOwner(existingBook.getUser_id());
+        // Verify user has access to this book
+        authorizationService.verifyResourceOwner(existingBook.getUserId());
         
         // Update fields
-        existingBook.setTitle(newBook.getTitle());
-        existingBook.setDescription(newBook.getDescription());
+        existingBook.setTitle(bookDetails.getTitle());
+        existingBook.setDescription(bookDetails.getDescription());
         
         return bookRepo.save(existingBook);
     }

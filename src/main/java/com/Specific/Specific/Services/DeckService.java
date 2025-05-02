@@ -27,70 +27,62 @@ public class DeckService {
     }
     
     /**
-     * Add a new deck for the current user
+     * Create a new deck for the current user
      * 
-     * @param deck The deck to add
-     * @return The saved deck with generated ID
+     * @param deck The deck to create
+     * @return The created deck
      */
-    public Deck addDeck(Deck deck) {
+    public Deck createDeck(Deck deck) {
         User currentUser = securityUtils.getCurrentUser();
-        deck.setUser_id(currentUser.getId());
+        deck.setUserId(currentUser.getId());
         return deckRepo.save(deck);
     }
     
     /**
-     * Delete a deck
+     * Get a deck by ID
      * 
-     * @param deck The deck to delete
-     * @return The deleted deck
+     * @param id The ID of the deck to get
+     * @return The deck
+     * @throws DeckNotFoundException If the deck doesn't exist
      */
-    public Deck deleteDeck(Deck deck) {
+    public Deck getDeckById(Long id) {
+        Deck deck = deckRepo.findById(id)
+                .orElseThrow(() -> new DeckNotFoundException("Deck not found with ID: " + id));
+        
+        // Verify user has access to this deck
         authorizationService.verifyDeckOwner(deck);
-        deckRepo.delete(deck);
+        
         return deck;
     }
     
     /**
-     * Delete a deck by its ID
+     * Delete a deck by ID
      * 
-     * @param deckId The ID of the deck to delete
-     * @return The deleted deck
-     * @throws DeckNotFoundException if the deck is not found
+     * @param id The ID of the deck to delete
+     * @throws DeckNotFoundException If the deck doesn't exist
      */
-    public Deck deleteDeckById(Long deckId) {
-        Deck deck = findDeckById(deckId);
-        return deleteDeck(deck);
+    public void deleteDeck(Long id) {
+        Deck deck = getDeckById(id);
+        deckRepo.delete(deck);
     }
     
     /**
-     * Find a deck by its ID
+     * Get all decks for the current user
      * 
-     * @param deckId The ID of the deck to find
-     * @return The found deck
-     * @throws DeckNotFoundException if the deck is not found
+     * @return List of decks
      */
-    public Deck findDeckById(Long deckId) {
-        return deckRepo.findById(deckId)
-                .orElseThrow(() -> new DeckNotFoundException("Deck with ID " + deckId + " not found"));
-    }
-    
-    /**
-     * Find all decks belonging to the current user
-     * 
-     * @return List of decks belonging to the current user
-     */
-    public List<Deck> findCurrentUserDecks() {
+    public List<Deck> getUserDecks() {
         User currentUser = securityUtils.getCurrentUser();
-        return deckRepo.findByUser_id(currentUser.getId());
+        return deckRepo.findByUserId(currentUser.getId());
     }
     
     /**
-     * Find all decks belonging to a specific user
+     * Get all decks for a specific user
      * 
      * @param userId The ID of the user
-     * @return List of decks belonging to the user
+     * @return List of decks
      */
-    public List<Deck> findDecksByUserId(Long userId) {
-        return deckRepo.findByUser_id(userId);
+    public List<Deck> getDecksByUserId(Long userId) {
+        return deckRepo.findByUserId(userId);
     }
 }

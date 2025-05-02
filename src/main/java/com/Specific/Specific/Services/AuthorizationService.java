@@ -26,7 +26,7 @@ public class AuthorizationService {
      * @throws UnauthorizedAccessException if the user is not the owner
      */
     public void verifyDeckOwner(Deck deck) {
-        if (!securityUtils.isResourceOwner(deck.getUser_id())) {
+        if (!securityUtils.isResourceOwner(deck.getUserId())) {
             throw new UnauthorizedAccessException("You don't have permission to access this deck");
         }
     }

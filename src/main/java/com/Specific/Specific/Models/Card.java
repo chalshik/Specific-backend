@@ -15,9 +15,9 @@ public class Card {
     private long id;
     
     @NotNull(message = "Deck ID is required")
-    private long deck_id;
+    private long deckId;
     
-    private long user_id;
+    private long userId;
     
     @NotBlank(message = "Front content is required")
     @Size(min = 1, max = 500, message = "Front content must be between 1 and 500 characters")
@@ -29,20 +29,20 @@ public class Card {
     
     private String context;
     
-    private long book_id;
+    private long bookId;
 
     // Constructors
     public Card() {
     }
 
-    public Card(long id, long deck_id, long user_id, String front, String back, String context, long book_id) {
+    public Card(long id, long deckId, long userId, String front, String back, String context, long bookId) {
         this.id = id;
-        this.deck_id = deck_id;
-        this.user_id = user_id;
+        this.deckId = deckId;
+        this.userId = userId;
         this.front = front;
         this.back = back;
         this.context = context;
-        this.book_id = book_id;
+        this.bookId = bookId;
     }
 
     // Getters and Setters
@@ -54,20 +54,20 @@ public class Card {
         this.id = id;
     }
 
-    public long getDeck_id() {
-        return deck_id;
+    public long getDeckId() {
+        return deckId;
     }
 
-    public void setDeck_id(long deck_id) {
-        this.deck_id = deck_id;
+    public void setDeckId(long deckId) {
+        this.deckId = deckId;
     }
 
-    public long getUser_id() {
-        return user_id;
+    public long getUserId() {
+        return userId;
     }
 
-    public void setUser_id(long user_id) {
-        this.user_id = user_id;
+    public void setUserId(long userId) {
+        this.userId = userId;
     }
 
     public String getFront() {
@@ -94,11 +94,11 @@ public class Card {
         this.context = context;
     }
 
-    public long getBook_id() {
-        return book_id;
+    public long getBookId() {
+        return bookId;
     }
 
-    public void setBook_id(long book_id) {
-        this.book_id = book_id;
+    public void setBookId(long bookId) {
+        this.bookId = bookId;
     }
 }

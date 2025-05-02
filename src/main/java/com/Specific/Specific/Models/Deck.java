@@ -10,16 +10,16 @@ public class Deck {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
-    private long user_id;
+    private long userId;
     private String title;
 
     // Constructors
     public Deck() {
     }
 
-    public Deck(long id, long user_id, String title) {
+    public Deck(long id, long userId, String title) {
         this.id = id;
-        this.user_id = user_id;
+        this.userId = userId;
         this.title = title;
     }
 
@@ -32,12 +32,12 @@ public class Deck {
         this.id = id;
     }
 
-    public long getUser_id() {
-        return user_id;
+    public long getUserId() {
+        return userId;
     }
 
-    public void setUser_id(long user_id) {
-        this.user_id = user_id;
+    public void setUserId(long userId) {
+        this.userId = userId;
     }
 
     public String getTitle() {
