@@ -6,6 +6,7 @@ import com.Specific.Specific.Repository.DeckRepo;
 import com.Specific.Specific.Services.DeckService;
 import com.Specific.Specific.Services.UserService;
 import com.google.firebase.auth.FirebaseAuthException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,16 +23,19 @@ public class AnkiController {
         this.deckService = deckService;
     }
     @PostMapping("/add-deck")
-    public ResponseEntity<Deck> addDeck(@RequestBody Deck deck, @RequestHeader("Authorization") String authHeader) throws FirebaseAuthException {
-        String idToken = authHeader.replace("Bearer ", "");
-        FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
-        String firebaseUid = decodedToken.getUid();
+    public ResponseEntity<Deck> addDeck(
+            @RequestBody Deck deck,
+            HttpServletRequest request
+    ) {
+        String firebaseUid = (String) request.getAttribute("firebaseUid");
 
-        // Service throws exception if user not found
-        User user = userService.findUserByEmail(firebaseUid);
+        // Fetch user using UID or email stored during filter
+        User user = userService.findUserByEmail(firebaseUid); // or getByUid if you store uid
 
         deck.setUser_id(user.getId());
         return ResponseEntity.ok(deckService.addDeck(deck));
     }
+
+
 
 }
