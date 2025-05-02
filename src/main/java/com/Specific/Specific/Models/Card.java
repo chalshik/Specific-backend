@@ -4,17 +4,31 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 @Entity
 public class Card {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
+    
+    @NotNull(message = "Deck ID is required")
     private long deck_id;
+    
     private long user_id;
+    
+    @NotBlank(message = "Front content is required")
+    @Size(min = 1, max = 500, message = "Front content must be between 1 and 500 characters")
     private String front;
+    
+    @NotBlank(message = "Back content is required")
+    @Size(min = 1, max = 500, message = "Back content must be between 1 and 500 characters")
     private String back;
+    
     private String context;
+    
     private long book_id;
 
     // Constructors

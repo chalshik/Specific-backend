@@ -1,11 +1,13 @@
 package com.Specific.Specific.Services;
 
+import com.Specific.Specific.Except.CardNotFoundException;
 import com.Specific.Specific.Models.Card;
 import com.Specific.Specific.Repository.CardRepo;
+import com.Specific.Specific.util.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.RequestAttribute;
-import org.springframework.web.bind.annotation.RequestBody;
+
+import java.util.List;
 
 /**
  * Service for managing flashcard operations.
@@ -14,10 +16,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 @Service
 public class CardService {
     private final CardRepo cardRepo;
+    private final AuthorizationService authorizationService;
+    private final SecurityUtils securityUtils;
     
     @Autowired
-    public CardService(CardRepo cardRepo) {
+    public CardService(
+            CardRepo cardRepo,
+            AuthorizationService authorizationService,
+            SecurityUtils securityUtils) {
         this.cardRepo = cardRepo;
+        this.authorizationService = authorizationService;
+        this.securityUtils = securityUtils;
     }
     
     /**
@@ -27,7 +36,9 @@ public class CardService {
      * @return The saved card with generated ID
      */
     public Card addCard(Card card) {
-       return cardRepo.save(card);
+        // Set current user as owner
+        card.setUser_id(securityUtils.getCurrentUser().getId());
+        return cardRepo.save(card);
     }
     
     /**
@@ -37,32 +48,62 @@ public class CardService {
      * @return The deleted card
      */
     public Card deleteCard(Card card) {
+        authorizationService.verifyResourceOwner(card.getUser_id());
         cardRepo.delete(card);
         return card;
     }
     
     /**
-     * Update an existing flashcard with new values.
+     * Delete a card by its ID
      * 
-     * @param newCard Card with updated values
-     * @param card_id ID of the card to update
-     * @return The updated card
-     * @throws RuntimeException if card not found
+     * @param cardId The ID of the card to delete
      */
-    public Card editCard(Card newCard, long card_id) {
-        // Retrieve existing card or throw exception if not found
-        Card oldCard = cardRepo.findById(card_id)
-                .orElseThrow(() -> new RuntimeException("Card not found"));
+    public void deleteCardById(Long cardId) {
+        Card card = findCardById(cardId);
+        deleteCard(card);
+    }
+    
+    /**
+     * Find a card by its ID
+     * 
+     * @param cardId The ID of the card
+     * @return The found card
+     * @throws CardNotFoundException if card not found
+     */
+    public Card findCardById(Long cardId) {
+        return cardRepo.findById(cardId)
+                .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
+    }
+    
+    /**
+     * Find all cards in a deck
+     * 
+     * @param deckId The ID of the deck
+     * @return List of cards in the deck
+     */
+    public List<Card> findCardsByDeckId(Long deckId) {
+        return cardRepo.findByDeck_id(deckId);
+    }
+    
+    /**
+     * Update an existing card with new values.
+     * 
+     * @param cardId ID of the card to update
+     * @param newCard Card with updated values
+     * @return The updated card
+     */
+    public Card updateCard(Long cardId, Card newCard) {
+        Card existingCard = findCardById(cardId);
         
-        // Update card fields with new values
-        oldCard.setFront(newCard.getFront());
-        oldCard.setBack(newCard.getBack());
-        oldCard.setContext(newCard.getContext());
-        oldCard.setDeck_id(newCard.getDeck_id());
-        oldCard.setBook_id(newCard.getBook_id());
-        oldCard.setUser_id(newCard.getUser_id());
+        // Verify ownership
+        authorizationService.verifyResourceOwner(existingCard.getUser_id());
+        
+        // Update card fields
+        existingCard.setFront(newCard.getFront());
+        existingCard.setBack(newCard.getBack());
+        existingCard.setContext(newCard.getContext());
         
         // Save and return updated card
-        return cardRepo.save(oldCard);
+        return cardRepo.save(existingCard);
     }
 }
