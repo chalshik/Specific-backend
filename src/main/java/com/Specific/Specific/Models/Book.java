@@ -18,19 +18,14 @@ public class Book {
     @NotBlank(message = "Title is required")
     @Size(min = 1, max = 255, message = "Title must be between 1 and 255 characters")
     private String title;
-    
-    @Size(max = 1000, message = "Description must be less than 1000 characters")
-    private String description;
-    
-    // Constructors
+
     public Book() {
     }
     
-    public Book(long id, long userId, String title, String description) {
+    public Book(long id, long userId, String title) {
         this.id = id;
         this.userId = userId;
         this.title = title;
-        this.description = description;
     }
     
     // Getters and Setters
@@ -58,11 +53,5 @@ public class Book {
         this.title = title;
     }
     
-    public String getDescription() {
-        return description;
-    }
-    
-    public void setDescription(String description) {
-        this.description = description;
-    }
+  
 }
