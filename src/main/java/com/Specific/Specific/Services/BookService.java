@@ -112,7 +112,6 @@ public class BookService {
         
         // Update fields
         existingBook.setTitle(bookDetails.getTitle());
-        existingBook.setDescription(bookDetails.getDescription());
         
         return bookRepo.save(existingBook);
     }

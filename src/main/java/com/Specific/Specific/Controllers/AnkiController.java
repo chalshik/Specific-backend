@@ -24,26 +24,26 @@ public class AnkiController {
     
     @PostMapping("/add-deck")
     public Deck addDeck(@RequestBody Deck deck) {
-        return deckService.addDeck(deck);
+        return deckService.createDeck(deck);
     }
 
     @DeleteMapping("/delete-deck/{deckId}")
     public ApiResponse deleteDeck(@PathVariable Long deckId) {
-        deckService.deleteDeckById(deckId);
+        deckService.deleteDeck(deckId);
         return ApiResponse.success("Deck deleted successfully");
     }
     
     @GetMapping("/user-decks")
     public List<Deck> getUserDecks() {
-        return deckService.findCurrentUserDecks();
+        return deckService.getUserDecks();
     }
     @PostMapping("/add-card")
     public Card addCard(@RequestBody Card card){
-        return cardService.addCard(card);
+        return cardService.createCard(card);
     }
     @DeleteMapping("/delete-card/{deckId}")
     public ApiResponse deleteCard(@PathVariable Long deckId){
-        cardService.deleteCardById(deckId);
+        cardService.deleteCard(deckId);
         return ApiResponse.success("Deck deleted successfully");
     }
 

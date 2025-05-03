@@ -37,9 +37,26 @@ public class TranslationService {
     /**
      * Translate a word to another language using DeepL API.
      * 
+     * Expected request format:
+     * {
+     *   "word": "hello",           // The word or text to translate (required)
+     *   "dest_lang": "DE",         // Target language code (required, e.g., DE for German, FR for French)
+     *   "context": "greeting"      // Optional context to improve translation accuracy
+     * }
+     * 
+     * Returns response format:
+     * {
+     *   "translations": [
+     *     {
+     *       "detected_source_language": "EN",  // The detected source language
+     *       "text": "hallo"                   // The translated text
+     *     }
+     *   ]
+     * }
+     * 
      * @param request Request containing the word, target language, and optional context
-     * @return Mono containing the translation response
-     * @throws RuntimeException if required fields are missing
+     * @return Mono<ResponseTranslation> containing the translation results from DeepL
+     * @throws RuntimeException if required fields (word or dest_lang) are missing
      */
     public Mono<ResponseTranslation> getTranslation(RequestTranslation request) {
         // Basic validation of required fields
