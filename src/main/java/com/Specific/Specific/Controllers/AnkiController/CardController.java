@@ -4,6 +4,8 @@ import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Services.CardService;
 import com.Specific.Specific.Services.ReviewService;
 import com.Specific.Specific.Models.Entities.Review;
+import com.Specific.Specific.Models.Entities.Deck;
+import com.Specific.Specific.Services.DeckService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,11 +19,13 @@ public class CardController {
     
     private final CardService cardService;
     private final ReviewService reviewService;
+    private final DeckService deckService;
     
     @Autowired
-    public CardController(CardService cardService, ReviewService reviewService) {
+    public CardController(CardService cardService, ReviewService reviewService, DeckService deckService) {
         this.cardService = cardService;
         this.reviewService = reviewService;
+        this.deckService = deckService;
     }
     
     /**
@@ -49,8 +53,13 @@ public class CardController {
         // Directly get due cards using the optimized service method
         return reviewService.findDueCardsForBook(bookId);
     }
+    
+    /**
+     * Add a new card to a deck
+     */
     @PostMapping("/add-card/{deckId}")
-    public Card addCard(@RequestBody Card card){
-        return cardService.createCard(card);
+    public Card addCard(@PathVariable Long deckId, @RequestBody Card card) {
+        // Use the service method to handle the association logic
+        return cardService.createCardInDeck(card, deckId);
     }
 } 

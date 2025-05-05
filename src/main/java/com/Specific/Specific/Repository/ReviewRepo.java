@@ -20,6 +20,14 @@ import java.util.Optional;
 public interface ReviewRepo extends JpaRepository<Review, Long> {
 
     /**
+     * Find all reviews for a specific card and user.
+     */
+    List<Review> findByCardAndUserOrderByReviewDateDesc(
+            @Param("card") Card card,
+            @Param("user") User user
+    );
+
+    /**
      * Find the most recent review for a specific card and user.
      */
     Optional<Review> findTopByCardAndUserOrderByReviewDateDesc(
@@ -33,7 +41,7 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     @Query("SELECT r FROM Review r JOIN r.card c " +
             "WHERE r.user = :user AND c.deck.id = :deckId " +
             "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
-    List<Review> findDueReviews(
+    List<Review> findDueReviewsByDeckId(
             @Param("user") User user,
             @Param("deckId") Long deckId,
             @Param("currentDate") LocalDateTime currentDate
@@ -43,7 +51,7 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
      * Find reviews for cards that have high intervals (well-learned).
      */
     @Query("SELECT r FROM Review r WHERE r.user = :user AND r.interval >= :minInterval")
-    List<Review> findFinishedReviews(
+    List<Review> findFinishedReviewsByUser(
             @Param("user") User user,
             @Param("minInterval") Integer minInterval
     );

@@ -46,6 +46,15 @@ public class Card {
         this.back = back;
         this.context = context;
     }
+    
+    /**
+     * Preferred constructor without ID (which is auto-generated)
+     */
+    public Card(String front, String back, String context) {
+        this.front = front;
+        this.back = back;
+        this.context = context;
+    }
 
     // Getters and Setters
     public long getId() {
@@ -101,8 +110,15 @@ public class Card {
     }
 
     public void setBookId(long bookId) {
-        // This method is kept for backward compatibility
-        // Ideally, you should set the book object directly
+        // This method only creates a placeholder that won't be properly loaded
+        // For proper association, use CardService.setCardBook() instead
+        if (bookId > 0) {
+            Book placeholder = new Book();
+            placeholder.setId(bookId);
+            this.book = placeholder;
+        } else {
+            this.book = null;
+        }
     }
 
     public void addReview(Review review){

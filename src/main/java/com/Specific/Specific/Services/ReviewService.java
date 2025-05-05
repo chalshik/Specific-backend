@@ -28,9 +28,6 @@ public class ReviewService {
     private final SecurityUtils securityUtils;
     private final AuthorizationService authorizationService;
     
-    // TEMPORARY: For testing only
-    private static final Long TEST_USER_ID = 1L;
-    
     private static final List<String> VALID_RATINGS = Arrays.asList("again", "hard", "good", "easy");
     
     @Autowired
@@ -43,6 +40,37 @@ public class ReviewService {
         this.cardRepo = cardRepo;
         this.securityUtils = securityUtils;
         this.authorizationService = authorizationService;
+    }
+    
+    /**
+     * Create a new Review entity with proper associations and default values
+     * 
+     * @param user The user who performed the review
+     * @param card The card being reviewed
+     * @param reviewDate The date/time of the review
+     * @param easeFactor The calculated ease factor
+     * @param interval The calculated interval
+     * @param repetitions The number of repetitions
+     * @param rating The rating given by the user
+     * @return A new Review entity with all fields populated
+     */
+    private Review createReview(User user, Card card, LocalDateTime reviewDate, 
+                               Double easeFactor, Integer interval, Integer repetitions, 
+                               Review.Rating rating) {
+        Review review = new Review();
+        review.setUser(user);
+        review.setCard(card);
+        review.setReviewDate(reviewDate);
+        review.setEaseFactor(easeFactor);
+        review.setInterval(interval);
+        review.setRepetitions(repetitions);
+        review.setLastResult(rating);
+        
+        // Update relationships
+        user.addReview(review);
+        card.addReview(review);
+        
+        return review;
     }
     
     /**
@@ -79,20 +107,14 @@ public class ReviewService {
             latestReview = latestReviewOpt.get();
         } else {
             // Default values for a new card (first review)
-            latestReview = new Review();
-            latestReview.setUser(currentUser);
-            latestReview.setCard(card);
-            latestReview.setReviewDate(reviewDate);
-            latestReview.setEaseFactor(2.5);  // Default ease factor in SM-2
-            latestReview.setInterval(0);      // Start with 0 day interval
-            latestReview.setRepetitions(0);   // No prior repetitions
+            latestReview = createReview(
+                currentUser, card, reviewDate,
+                2.5, // Default ease factor in SM-2
+                0,   // Start with 0 day interval
+                0,   // No prior repetitions
+                null // No prior rating
+            );
         }
-
-        // Initialize new review entity
-        Review newReview = new Review();
-        newReview.setUser(currentUser);
-        newReview.setCard(card);
-        newReview.setReviewDate(reviewDate);
 
         // SM-2 calculations based on user rating
         int newInterval;
@@ -133,15 +155,11 @@ public class ReviewService {
                 throw new InvalidReviewRatingException("Invalid rating: " + rating);
         }
 
-        // Update the review with calculated values
-        newReview.setInterval(newInterval);
-        newReview.setEaseFactor(newEaseFactor);
-        newReview.setRepetitions(newRepetitions);
-        newReview.setLastResult(newRating);
-
-        // Save the review and update relationships
-        currentUser.addReview(newReview);
-        card.addReview(newReview);
+        // Create the new review using the factory method
+        Review newReview = createReview(
+            currentUser, card, reviewDate,
+            newEaseFactor, newInterval, newRepetitions, newRating
+        );
 
         // Save to database and return
         return reviewRepo.save(newReview);
@@ -168,7 +186,7 @@ public class ReviewService {
      */
     public List<Review> findDueReviewsByDeck(Long deckId) {
         User currentUser = securityUtils.getCurrentUser();
-        return reviewRepo.findDueReviews(currentUser, deckId, LocalDateTime.now());
+        return reviewRepo.findDueReviewsByDeckId(currentUser, deckId, LocalDateTime.now());
     }
     
     /**
@@ -195,9 +213,8 @@ public class ReviewService {
         Card card = cardRepo.findById(cardId)
                 .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
         
-        return reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, currentUser)
-                .map(List::of)
-                .orElse(List.of());
+        // Get all reviews for this card-user pair, not just the latest one
+        return reviewRepo.findByCardAndUserOrderByReviewDateDesc(card, currentUser);
     }
     
     /**
@@ -222,5 +239,16 @@ public class ReviewService {
     public List<Card> findDueCardsForBook(Long bookId) {
         User currentUser = securityUtils.getCurrentUser();
         return reviewRepo.findDueCardsForBook(currentUser, bookId, LocalDateTime.now());
+    }
+    
+    /**
+     * Find all reviews for cards from a specific book
+     * 
+     * @param bookId Book ID
+     * @return List of reviews
+     */
+    public List<Review> findReviewsByBook(Long bookId) {
+        User currentUser = securityUtils.getCurrentUser();
+        return reviewRepo.findReviewsByBookId(bookId, currentUser);
     }
 }

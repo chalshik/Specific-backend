@@ -153,4 +153,44 @@ public class CardService {
         
         cardRepo.delete(card);
     }
+    
+    /**
+     * Set the book for a card by book ID
+     * 
+     * @param card The card to update
+     * @param bookId The ID of the book to associate with the card
+     * @return The updated card
+     */
+    public Card setCardBook(Card card, Long bookId) {
+        if (bookId != null && bookId > 0) {
+            Book book = bookService.getBookById(bookId);
+            card.setBook(book);
+        } else {
+            card.setBook(null);
+        }
+        return card;
+    }
+    
+    /**
+     * Create a new card and associate it with a deck
+     * 
+     * @param card The card to create
+     * @param deckId The ID of the deck to associate with the card
+     * @return The created card
+     */
+    public Card createCardInDeck(Card card, Long deckId) {
+        // Get the deck and verify access
+        Deck deck = deckService.getDeckById(deckId);
+        
+        // Associate the card with the deck using the helper method
+        deck.addCard(card);
+        
+        // Set the book if needed
+        if (card.getBook() != null && card.getBook().getId() > 0) {
+            setCardBook(card, card.getBook().getId());
+        }
+        
+        // Save and return
+        return cardRepo.save(card);
+    }
 }

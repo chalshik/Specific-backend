@@ -59,6 +59,10 @@ public class Book {
         this.title = title;
     }
 
+    public List<Card> getCards() {
+        return cards;
+    }
+
     public void addCard(Card card) {
         cards.add(card);
         card.setBook(this);

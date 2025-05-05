@@ -67,6 +67,14 @@ public class User {
         return decks;
     }
     
+    public List<Book> getBooks() {
+        return books;
+    }
+    
+    public List<Review> getReviews() {
+        return reviews;
+    }
+    
     public void addBook(Book book){
         books.add(book);
         book.setUser(this);
