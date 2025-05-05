@@ -1,12 +1,10 @@
 package com.Specific.Specific.Services;
 
 import com.Specific.Specific.Except.UserNotFoundException;
-import com.Specific.Specific.Models.User;
+import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Repository.UserRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
-import java.util.Optional;
 
 /**
  * Service for managing user accounts.

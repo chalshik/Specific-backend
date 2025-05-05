@@ -1,4 +1,4 @@
-package com.Specific.Specific.Models;
+package com.Specific.Specific.Models.Entities;
 
 import jakarta.persistence.*;
 

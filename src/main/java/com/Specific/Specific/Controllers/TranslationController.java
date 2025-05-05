@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
+import java.util.concurrent.CompletableFuture;
+
 @RestController
 @RequestMapping("/translation")
 public class TranslationController {
@@ -14,7 +16,7 @@ public class TranslationController {
     private TranslationService translationService;
     
     @PostMapping
-    public Mono<ResponseTranslation> getTranslation(@RequestBody RequestTranslation requestTranslation) {
+    public CompletableFuture<ResponseTranslation> getTranslation(@RequestBody RequestTranslation requestTranslation) {
         return translationService.getTranslation(requestTranslation);
     }
 

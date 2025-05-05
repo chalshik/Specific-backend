@@ -1,7 +1,6 @@
 package com.Specific.Specific.Controllers;
 
-import com.Specific.Specific.Models.ApiResponse;
-import com.Specific.Specific.Models.Review;
+import com.Specific.Specific.Models.Entities.Review;
 import com.Specific.Specific.Models.ReviewRequest;
 import com.Specific.Specific.Services.ReviewService;
 import jakarta.validation.Valid;

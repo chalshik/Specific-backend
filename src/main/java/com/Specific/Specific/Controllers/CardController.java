@@ -1,15 +1,14 @@
 package com.Specific.Specific.Controllers;
 
-import com.Specific.Specific.Models.Card;
+import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Services.CardService;
 import com.Specific.Specific.Services.ReviewService;
-import com.Specific.Specific.Models.Review;
+import com.Specific.Specific.Models.Entities.Review;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController

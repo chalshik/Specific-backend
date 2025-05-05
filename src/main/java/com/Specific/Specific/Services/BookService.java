@@ -1,8 +1,8 @@
 package com.Specific.Specific.Services;
 
 import com.Specific.Specific.Except.BookNotFoundException;
-import com.Specific.Specific.Models.Book;
-import com.Specific.Specific.Models.User;
+import com.Specific.Specific.Models.Entities.Book;
+import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Repository.BookRepo;
 import com.Specific.Specific.util.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;

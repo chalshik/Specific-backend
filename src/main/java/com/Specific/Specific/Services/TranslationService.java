@@ -5,6 +5,7 @@ import com.Specific.Specific.Models.ResponseTranslation;
 import com.Specific.Specific.config.DeeplConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -12,6 +13,8 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import org.springframework.http.HttpHeaders;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Service for handling translations using the DeepL API.
@@ -58,30 +61,34 @@ public class TranslationService {
      * @return Mono<ResponseTranslation> containing the translation results from DeepL
      * @throws RuntimeException if required fields (word or dest_lang) are missing
      */
-    public Mono<ResponseTranslation> getTranslation(RequestTranslation request) {
+    @Async
+    public CompletableFuture<ResponseTranslation> getTranslation(RequestTranslation request) {
         // Basic validation of required fields
-        if (request.getWord() == null || request.getWord().isEmpty() || 
-            request.getDest_lang() == null || request.getDest_lang().isEmpty()) {
-            return Mono.error(new RuntimeException("Word and destination language cannot be empty"));
+        if (request.getWord() == null || request.getWord().isEmpty() ||
+                request.getDest_lang() == null || request.getDest_lang().isEmpty()) {
+            return CompletableFuture.failedFuture(new RuntimeException("Word and destination language cannot be empty"));
         }
-        
+
         // Prepare DeepL API request parameters
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
         formData.add("text", request.getWord());
         formData.add("target_lang", request.getDest_lang());
-        
+
         // Add context if available (improves translation accuracy)
         if (request.getContext() != null && !request.getContext().isEmpty()) {
             formData.add("context", request.getContext());
         }
-        
+
         // Execute the API call to DeepL
-        return webClient.post()
+        Mono<ResponseTranslation> responseTranslationMono = webClient.post()
                 .uri("") // The path after the base URL
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
                 .header("Authorization", "DeepL-Auth-Key " + deeplConfig.getApiKey())
                 .body(BodyInserters.fromFormData(formData))
                 .retrieve()
                 .bodyToMono(ResponseTranslation.class);
+
+        // Convert the Mono to CompletableFuture and return
+        return responseTranslationMono.toFuture();
     }
 }

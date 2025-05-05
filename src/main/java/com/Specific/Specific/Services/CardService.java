@@ -1,8 +1,8 @@
 package com.Specific.Specific.Services;
 
 import com.Specific.Specific.Except.CardNotFoundException;
-import com.Specific.Specific.Models.Card;
-import com.Specific.Specific.Models.User;
+import com.Specific.Specific.Models.Entities.Card;
+import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.util.SecurityUtils;
 import com.Specific.Specific.Repository.CardRepo;
 import org.springframework.beans.factory.annotation.Autowired;

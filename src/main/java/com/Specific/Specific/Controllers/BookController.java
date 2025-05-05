@@ -1,7 +1,7 @@
 package com.Specific.Specific.Controllers;
 
 import com.Specific.Specific.Models.ApiResponse;
-import com.Specific.Specific.Models.Book;
+import com.Specific.Specific.Models.Entities.Book;
 import com.Specific.Specific.Services.BookService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,17 +22,17 @@ public class BookController {
     
     @PostMapping
     public Book createBook(@Valid @RequestBody Book book) {
-        return bookService.addBook(book);
+        return bookService.createBook(book);
     }
     
     @GetMapping
     public List<Book> getUserBooks() {
-        return bookService.findCurrentUserBooks();
+        return bookService.getUserBooks();
     }
     
     @GetMapping("/{bookId}")
     public Book getBookById(@PathVariable Long bookId) {
-        return bookService.findBookById(bookId);
+        return bookService.getBookById(bookId);
     }
     
     @GetMapping("/search")
@@ -47,7 +47,7 @@ public class BookController {
     
     @DeleteMapping("/{bookId}")
     public ApiResponse deleteBook(@PathVariable Long bookId) {
-        bookService.deleteBookById(bookId);
+        bookService.deleteBook(bookId);
         return ApiResponse.success("Book deleted successfully");
     }
 } 

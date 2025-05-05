@@ -1,6 +1,6 @@
 package com.Specific.Specific.Repository;
 
-import com.Specific.Specific.Models.Review;
+import com.Specific.Specific.Models.Entities.Review;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

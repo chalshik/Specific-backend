@@ -1,8 +1,8 @@
 package com.Specific.Specific.Controllers;
 
 import com.Specific.Specific.Models.ApiResponse;
-import com.Specific.Specific.Models.Card;
-import com.Specific.Specific.Models.Deck;
+import com.Specific.Specific.Models.Entities.Card;
+import com.Specific.Specific.Models.Entities.Deck;
 import com.Specific.Specific.Services.CardService;
 import com.Specific.Specific.Services.DeckService;
 import org.springframework.beans.factory.annotation.Autowired;

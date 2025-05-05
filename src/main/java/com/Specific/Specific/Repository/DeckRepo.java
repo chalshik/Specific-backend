@@ -1,6 +1,6 @@
 package com.Specific.Specific.Repository;
 
-import com.Specific.Specific.Models.Deck;
+import com.Specific.Specific.Models.Entities.Deck;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

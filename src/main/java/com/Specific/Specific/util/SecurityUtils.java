@@ -1,6 +1,6 @@
 package com.Specific.Specific.util;
 
-import com.Specific.Specific.Models.User;
+import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Services.UserService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
