@@ -1,5 +1,6 @@
 package com.Specific.Specific.Models.Entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 import java.util.ArrayList;
@@ -15,8 +16,9 @@ public class Deck {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
     private String title;
+    @JsonIgnore
     @OneToMany(mappedBy = "deck", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private List<Card> cards  = new ArrayList<>();
+    private List<Card> cards = new ArrayList<>();
     // Constructors
     public Deck() {
     }

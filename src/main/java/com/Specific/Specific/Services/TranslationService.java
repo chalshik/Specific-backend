@@ -1,7 +1,7 @@
 package com.Specific.Specific.Services;
 
-import com.Specific.Specific.Models.RequestTranslation;
-import com.Specific.Specific.Models.ResponseTranslation;
+import com.Specific.Specific.Models.RequestModels.RequestTranslation;
+import com.Specific.Specific.Models.ResponseModels.ResponseTranslation;
 import com.Specific.Specific.config.DeeplConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;

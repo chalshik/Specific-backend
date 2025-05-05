@@ -1,5 +1,6 @@
 package com.Specific.Specific.Models.Entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -22,6 +23,7 @@ public class Card {
     @NotBlank(message = "Front content is required")
     @Size(min = 1, max = 500, message = "Front content must be between 1 and 500 characters")
     private String front;
+    @JsonIgnore
     @OneToMany(mappedBy = "card", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Review> reviews = new ArrayList<>();
     @NotBlank(message = "Back content is required")

@@ -1,5 +1,6 @@
 package com.Specific.Specific.Models.Entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 import java.util.ArrayList;
@@ -13,12 +14,15 @@ public class User {
     private long id;
     
     private String username;
+    @JsonIgnore
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Book> books = new ArrayList<>();
     @Column(unique = true, nullable = false)
     private String firebaseUid;  // Renamed from "Uid" for consistency
+    @JsonIgnore
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Deck> decks = new ArrayList<>();
+    @JsonIgnore
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Review> reviews = new ArrayList<>();
     // Constructors
@@ -58,6 +62,11 @@ public class User {
     public void setFirebaseUid(String firebaseUid) {
         this.firebaseUid = firebaseUid;
     }
+    
+    public List<Deck> getDecks() {
+        return decks;
+    }
+    
     public void addBook(Book book){
         books.add(book);
         book.setUser(this);

@@ -1,7 +1,7 @@
-package com.Specific.Specific.Controllers;
+package com.Specific.Specific.Controllers.AnkiController;
 
 import com.Specific.Specific.Models.Entities.Review;
-import com.Specific.Specific.Models.ReviewRequest;
+import com.Specific.Specific.Models.RequestModels.ReviewRequest;
 import com.Specific.Specific.Services.ReviewService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;

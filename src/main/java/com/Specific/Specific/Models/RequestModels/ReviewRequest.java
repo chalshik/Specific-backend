@@ -1,4 +1,4 @@
-package com.Specific.Specific.Models;
+package com.Specific.Specific.Models.RequestModels;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;

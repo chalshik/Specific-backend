@@ -1,6 +1,6 @@
 package com.Specific.Specific.Controllers;
 
-import com.Specific.Specific.Models.ApiResponse;
+import com.Specific.Specific.Models.ResponseModels.ApiResponse;
 import com.Specific.Specific.Models.Entities.Book;
 import com.Specific.Specific.Services.BookService;
 import jakarta.validation.Valid;

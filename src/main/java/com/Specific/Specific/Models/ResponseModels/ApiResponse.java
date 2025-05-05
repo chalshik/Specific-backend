@@ -1,4 +1,4 @@
-package com.Specific.Specific.Models;
+package com.Specific.Specific.Models.ResponseModels;
 
 /**
  * Standard API response object

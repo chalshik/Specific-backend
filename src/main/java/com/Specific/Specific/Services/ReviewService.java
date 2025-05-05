@@ -5,6 +5,7 @@ import com.Specific.Specific.Except.InvalidReviewRatingException;
 import com.Specific.Specific.Except.ReviewNotFoundException;
 import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.Review;
+import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Repository.CardRepo;
 import com.Specific.Specific.Repository.ReviewRepo;
 import com.Specific.Specific.util.SecurityUtils;
@@ -57,18 +58,21 @@ public class ReviewService {
             throw new InvalidReviewRatingException("Invalid rating: " + rating + ". Must be one of: again, hard, good, easy");
         }
         
-        // TEMPORARY: Use test user instead of getting current user
-        Long userId = TEST_USER_ID;
+        // Get current user
+        User currentUser = securityUtils.getCurrentUser();
         
-        // TEMPORARY: Skip card ownership verification
+        // Find the card
         Card card = cardRepo.findById(cardId)
                 .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
+        
+        // TEMPORARY: Skip card ownership verification
+        // authorizationService.verifyCardAccess(card);
         
         // Current review time
         LocalDateTime reviewDate = LocalDateTime.now();
         
         // Fetch latest review for card-user pair, or initialize for new card
-        Optional<Review> latestReviewOpt = reviewRepo.findTopByCardIdAndUserIdOrderByReviewDateDesc(cardId, userId);
+        Optional<Review> latestReviewOpt = reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, currentUser);
         
         Review latestReview;
         if (latestReviewOpt.isPresent()) {
@@ -76,8 +80,8 @@ public class ReviewService {
         } else {
             // Default values for a new card (first review)
             latestReview = new Review();
-            latestReview.setUserId(userId);
-            latestReview.setCardId(cardId);
+            latestReview.setUser(currentUser);
+            latestReview.setCard(card);
             latestReview.setReviewDate(reviewDate);
             latestReview.setEaseFactor(2.5);  // Default ease factor in SM-2
             latestReview.setInterval(0);      // Start with 0 day interval
@@ -86,8 +90,8 @@ public class ReviewService {
 
         // Initialize new review entity
         Review newReview = new Review();
-        newReview.setUserId(userId);
-        newReview.setCardId(cardId);
+        newReview.setUser(currentUser);
+        newReview.setCard(card);
         newReview.setReviewDate(reviewDate);
 
         // SM-2 calculations based on user rating
@@ -135,6 +139,10 @@ public class ReviewService {
         newReview.setRepetitions(newRepetitions);
         newReview.setLastResult(newRating);
 
+        // Save the review and update relationships
+        currentUser.addReview(newReview);
+        card.addReview(newReview);
+
         // Save to database and return
         return reviewRepo.save(newReview);
     }
@@ -159,8 +167,8 @@ public class ReviewService {
      * @return List of due reviews
      */
     public List<Review> findDueReviewsByDeck(Long deckId) {
-        // TEMPORARY: Use test user instead of getting current user
-        return reviewRepo.findDueReviews(TEST_USER_ID, deckId, LocalDateTime.now());
+        User currentUser = securityUtils.getCurrentUser();
+        return reviewRepo.findDueReviews(currentUser, deckId, LocalDateTime.now());
     }
     
     /**
@@ -170,8 +178,8 @@ public class ReviewService {
      * @return List of due reviews
      */
     public List<Review> findDueReviewsByBook(Long bookId) {
-        // TEMPORARY: Use test user instead of getting current user
-        return reviewRepo.findDueReviewsByBookId(bookId, TEST_USER_ID, LocalDateTime.now());
+        User currentUser = securityUtils.getCurrentUser();
+        return reviewRepo.findDueReviewsByBookId(bookId, currentUser, LocalDateTime.now());
     }
     
     /**
@@ -181,13 +189,38 @@ public class ReviewService {
      * @return List of reviews for the card
      */
     public List<Review> findReviewsByCard(Long cardId) {
-        // TEMPORARY: Skip card ownership verification and use test user
-        // Just check if card exists
+        User currentUser = securityUtils.getCurrentUser();
+        
+        // Find the card
         Card card = cardRepo.findById(cardId)
                 .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
         
-        return reviewRepo.findTopByCardIdAndUserIdOrderByReviewDateDesc(cardId, TEST_USER_ID)
+        return reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, currentUser)
                 .map(List::of)
                 .orElse(List.of());
+    }
+    
+    /**
+     * Find cards that are due for review in a specific deck
+     * This optimized method directly returns the cards without filtering
+     * 
+     * @param deckId Deck ID
+     * @return List of due cards
+     */
+    public List<Card> findDueCardsForDeck(Long deckId) {
+        User currentUser = securityUtils.getCurrentUser();
+        return reviewRepo.findDueCardsForDeck(currentUser, deckId, LocalDateTime.now());
+    }
+    
+    /**
+     * Find cards that are due for review in a specific book
+     * This optimized method directly returns the cards without filtering
+     * 
+     * @param bookId Book ID
+     * @return List of due cards
+     */
+    public List<Card> findDueCardsForBook(Long bookId) {
+        User currentUser = securityUtils.getCurrentUser();
+        return reviewRepo.findDueCardsForBook(currentUser, bookId, LocalDateTime.now());
     }
 }

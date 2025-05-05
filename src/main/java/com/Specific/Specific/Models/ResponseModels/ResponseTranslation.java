@@ -1,9 +1,7 @@
-package com.Specific.Specific.Models;
+package com.Specific.Specific.Models.ResponseModels;
 
-import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonRootName;
 
 import java.util.List;
 

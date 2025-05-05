@@ -1,4 +1,4 @@
-package com.Specific.Specific.Models;
+package com.Specific.Specific.Models.RequestModels;
 
 public class RequestTranslation {
     private String dest_lang;

@@ -1,6 +1,7 @@
-package com.Specific.Specific.Controllers;
+package com.Specific.Specific.Controllers.AnkiController;
 
-import com.Specific.Specific.Models.ApiResponse;
+import com.Specific.Specific.Models.RequestModels.RequestDeck;
+import com.Specific.Specific.Models.ResponseModels.ApiResponse;
 import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.Deck;
 import com.Specific.Specific.Services.CardService;
@@ -12,18 +13,20 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/anki")
-public class AnkiController {
+public class DeckController {
     private final DeckService deckService;
     private final CardService cardService;
     
     @Autowired
-    public AnkiController(DeckService deckService,CardService cardService) {
+    public DeckController(DeckService deckService, CardService cardService) {
         this.deckService = deckService;
         this.cardService = cardService;
     }
     
     @PostMapping("/add-deck")
-    public Deck addDeck(@RequestBody Deck deck) {
+    public Deck addDeck(@RequestBody RequestDeck requestDeck) {
+        Deck deck = new Deck();
+        deck.setTitle(requestDeck.getTitle());
         return deckService.createDeck(deck);
     }
 
@@ -36,10 +39,6 @@ public class AnkiController {
     @GetMapping("/user-decks")
     public List<Deck> getUserDecks() {
         return deckService.getUserDecks();
-    }
-    @PostMapping("/add-card")
-    public Card addCard(@RequestBody Card card){
-        return cardService.createCard(card);
     }
     @DeleteMapping("/delete-card/{deckId}")
     public ApiResponse deleteCard(@PathVariable Long deckId){

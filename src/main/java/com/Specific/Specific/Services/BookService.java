@@ -36,7 +36,7 @@ public class BookService {
         User currentUser = securityUtils.getCurrentUser();
         
         // Set user ID
-        book.setUserId(currentUser.getId());
+        book.setUser(currentUser);
         
         return bookRepo.save(book);
     }
@@ -53,7 +53,7 @@ public class BookService {
             .orElseThrow(() -> new BookNotFoundException("Book not found with ID: " + id));
         
         // Verify user has access to this book
-        authorizationService.verifyResourceOwner(book.getUserId());
+        authorizationService.verifyResourceOwner(book.getUser().getId());
         
         return book;
     }
@@ -69,7 +69,7 @@ public class BookService {
             .orElseThrow(() -> new BookNotFoundException("Book not found with ID: " + id));
         
         // Verify user has access to this book
-        authorizationService.verifyResourceOwner(book.getUserId());
+        authorizationService.verifyResourceOwner(book.getUser().getId());
         
         bookRepo.delete(book);
     }
@@ -106,10 +106,8 @@ public class BookService {
     public Book updateBook(Long id, Book bookDetails) throws BookNotFoundException {
         Book existingBook = bookRepo.findById(id)
             .orElseThrow(() -> new BookNotFoundException("Book not found with ID: " + id));
-        
-        // Verify user has access to this book
-        authorizationService.verifyResourceOwner(existingBook.getUserId());
-        
+
+        authorizationService.verifyResourceOwner(existingBook.getUser().getId());
         // Update fields
         existingBook.setTitle(bookDetails.getTitle());
         

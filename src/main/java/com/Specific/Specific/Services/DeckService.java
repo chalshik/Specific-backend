@@ -34,7 +34,7 @@ public class DeckService {
      */
     public Deck createDeck(Deck deck) {
         User currentUser = securityUtils.getCurrentUser();
-        deck.setUserId(currentUser.getId());
+        currentUser.addDeck(deck);
         return deckRepo.save(deck);
     }
     
@@ -62,8 +62,7 @@ public class DeckService {
      * @throws DeckNotFoundException If the deck doesn't exist
      */
     public void deleteDeck(Long id) {
-        Deck deck = getDeckById(id);
-        deckRepo.delete(deck);
+        deckRepo.deleteById(id);
     }
     
     /**
@@ -73,7 +72,7 @@ public class DeckService {
      */
     public List<Deck> getUserDecks() {
         User currentUser = securityUtils.getCurrentUser();
-        return deckRepo.findByUserId(currentUser.getId());
+        return currentUser.getDecks();
     }
     
     /**
