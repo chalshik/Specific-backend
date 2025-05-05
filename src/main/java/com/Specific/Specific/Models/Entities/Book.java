@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Entity
 @Table(name = "book")
 public class Book {
@@ -11,18 +14,21 @@ public class Book {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
     
-    private long userId;
-    
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
     @NotBlank(message = "Title is required")
     @Size(min = 1, max = 255, message = "Title must be between 1 and 255 characters")
     private String title;
 
+    @OneToMany(mappedBy = "book", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<Card> cards = new ArrayList<>();
+
     public Book() {
     }
     
-    public Book(long id, long userId, String title) {
+    public Book(long id, String title) {
         this.id = id;
-        this.userId = userId;
         this.title = title;
     }
     
@@ -34,15 +40,15 @@ public class Book {
     public void setId(long id) {
         this.id = id;
     }
-    
-    public long getUserId() {
-        return userId;
+
+    public User getUser() {
+        return user;
     }
-    
-    public void setUserId(long userId) {
-        this.userId = userId;
+
+    public void setUser(User user) {
+        this.user = user;
     }
-    
+
     public String getTitle() {
         return title;
     }
@@ -50,6 +56,10 @@ public class Book {
     public void setTitle(String title) {
         this.title = title;
     }
-    
+
+    public void addCard(Card card) {
+        cards.add(card);
+        card.setBook(this);
+    }
 
 }

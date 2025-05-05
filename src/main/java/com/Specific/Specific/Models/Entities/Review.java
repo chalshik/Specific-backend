@@ -13,12 +13,13 @@ public class Review {
     private Long id;
 
     @NotNull
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
-
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
     @NotNull
-    @Column(name = "card_id", nullable = false)
-    private Long cardId;
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "card_id", nullable = false)
+    private Card card;
 
     @NotNull
     @Column(name = "review_date", nullable = false)
@@ -46,11 +47,9 @@ public class Review {
     public Review() {
     }
     
-    public Review(Long id, Long userId, Long cardId, LocalDateTime reviewDate, 
+    public Review(Long id, LocalDateTime reviewDate,
                  Double easeFactor, Integer interval, Integer repetitions, Rating lastResult) {
         this.id = id;
-        this.userId = userId;
-        this.cardId = cardId;
         this.reviewDate = reviewDate;
         this.easeFactor = easeFactor;
         this.interval = interval;
@@ -66,23 +65,23 @@ public class Review {
     public void setId(Long id) {
         this.id = id;
     }
-    
-    public Long getUserId() {
-        return userId;
+
+    public User getUser() {
+        return user;
     }
-    
-    public void setUserId(Long userId) {
-        this.userId = userId;
+
+    public void setUser(User user) {
+        this.user = user;
     }
-    
-    public Long getCardId() {
-        return cardId;
+
+    public Card getCard() {
+        return card;
     }
-    
-    public void setCardId(Long cardId) {
-        this.cardId = cardId;
+
+    public void setCard(Card card) {
+        this.card = card;
     }
-    
+
     public LocalDateTime getReviewDate() {
         return reviewDate;
     }
