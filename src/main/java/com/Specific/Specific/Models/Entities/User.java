@@ -25,6 +25,9 @@ public class User {
     @JsonIgnore
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Review> reviews = new ArrayList<>();
+    @JsonIgnore
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<Card> cards = new ArrayList<>();
     // Constructors
     public User() {
     }
@@ -75,6 +78,10 @@ public class User {
         return reviews;
     }
     
+    public List<Card> getCards() {
+        return cards;
+    }
+    
     public void addBook(Book book){
         books.add(book);
         book.setUser(this);
@@ -82,5 +89,9 @@ public class User {
     public void addReview(Review review){
         reviews.add(review);
         review.setUser(this);
+    }
+    public void addCard(Card card) {
+        cards.add(card);
+        card.setUser(this);
     }
 }

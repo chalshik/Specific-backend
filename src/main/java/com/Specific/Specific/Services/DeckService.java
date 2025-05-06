@@ -81,7 +81,9 @@ public class DeckService {
      * @param userId The ID of the user
      * @return List of decks
      */
-    public List<Deck> getDecksByUserId(Long userId) {
-        return deckRepo.findByUserId(userId);
+    public List<Deck> getDecksByUserId() {
+        User currentUser = securityUtils.getCurrentUser();
+
+        return deckRepo.findByUser(currentUser);
     }
 }

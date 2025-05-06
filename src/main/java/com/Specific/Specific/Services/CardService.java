@@ -41,6 +41,10 @@ public class CardService {
      * @return The created card
      */
     public Card createCard(Card card) {
+        // Set the current user
+        User currentUser = securityUtils.getCurrentUser();
+        card.setUser(currentUser);
+        
         // Verify that the deck and book exist and belong to the user
         // This will throw exceptions if not found or not authorized
         if (card.getBook() != null) {
@@ -73,7 +77,7 @@ public class CardService {
      */
     public List<Card> getUserCards() {
         User currentUser = securityUtils.getCurrentUser();
-        return cardRepo.findByDeck_User(currentUser);
+        return cardRepo.findByUser(currentUser);
     }
     
     /**
@@ -116,6 +120,8 @@ public class CardService {
         Card existingCard = cardRepo.findById(id)
             .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
 
+        // Ensure the user field remains the same
+        cardDetails.setUser(existingCard.getUser());
         
         // If deck ID has changed, verify the user has access to the new deck
         if (!cardDetails.getDeck().equals(existingCard.getDeck())) {
@@ -181,6 +187,10 @@ public class CardService {
     public Card createCardInDeck(Card card, Long deckId) {
         // Get the deck and verify access
         Deck deck = deckService.getDeckById(deckId);
+        
+        // Set the current user
+        User currentUser = securityUtils.getCurrentUser();
+        card.setUser(currentUser);
         
         // Associate the card with the deck using the helper method
         deck.addCard(card);

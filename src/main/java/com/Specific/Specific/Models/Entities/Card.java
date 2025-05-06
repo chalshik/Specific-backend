@@ -20,6 +20,10 @@ public class Card {
     @JoinColumn(name = "deck_id", nullable = false)
     private Deck deck;
     
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+    
     @NotBlank(message = "Front content is required")
     @Size(min = 1, max = 500, message = "Front content must be between 1 and 500 characters")
     private String front;
@@ -71,6 +75,14 @@ public class Card {
 
     public void setDeck(Deck deck) {
         this.deck = deck;
+    }
+    
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
     }
 
     public String getFront() {
