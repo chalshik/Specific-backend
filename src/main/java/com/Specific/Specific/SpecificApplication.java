@@ -1,5 +1,6 @@
 package com.Specific.Specific;
 
+import com.Specific.Specific.Models.Game.GameMessage;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 

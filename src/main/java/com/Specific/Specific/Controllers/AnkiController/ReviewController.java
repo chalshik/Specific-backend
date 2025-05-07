@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reviews")
@@ -21,57 +22,39 @@ public class ReviewController {
     }
     
     /**
-     * Process a review for a card (submit a rating)
+     * Submit a review for a card (rating: again, hard, good, easy)
+     * This is the core functionality of the spaced repetition system
+     * The algorithm will calculate the next review date based on the rating
      * 
      * @param request The review request containing card ID and rating
-     * @return The created review
+     * @return The created review with the calculated next interval
      */
     @PostMapping
-    public Review processReview(@Valid @RequestBody ReviewRequest request) {
+    public Review submitReview(@Valid @RequestBody ReviewRequest request) {
         return reviewService.processReview(request.getCardId(), request.getRating());
     }
     
     /**
-     * Get a specific review by ID
+     * Get review statistics for a specific deck
+     * This helps users track their progress in learning the deck
      * 
-     * @param reviewId The review ID
-     * @return The review
+     * @param deckId The deck ID
+     * @return Statistics about the deck's reviews
      */
-    @GetMapping("/{reviewId}")
-    public Review getReview(@PathVariable Long reviewId) {
-        return reviewService.findReviewById(reviewId);
+    @GetMapping("/stats/deck/{deckId}")
+    public Map<String, Object> getDeckReviewStats(@PathVariable Long deckId) {
+        return reviewService.getDeckReviewStatistics(deckId);
     }
     
     /**
-     * Get reviews for a specific card
+     * Get review history for a specific card
+     * This allows users to see their progress with a particular card
      * 
      * @param cardId The card ID
      * @return List of reviews for the card
      */
-    @GetMapping("/card/{cardId}")
-    public List<Review> getReviewsByCard(@PathVariable Long cardId) {
+    @GetMapping("/history/card/{cardId}")
+    public List<Review> getCardReviewHistory(@PathVariable Long cardId) {
         return reviewService.findReviewsByCard(cardId);
-    }
-    
-    /**
-     * Get due reviews for a specific deck
-     * 
-     * @param deckId The deck ID
-     * @return List of due reviews
-     */
-    @GetMapping("/due/deck/{deckId}")
-    public List<Review> getDueReviewsByDeck(@PathVariable Long deckId) {
-        return reviewService.findDueReviewsByDeck(deckId);
-    }
-    
-    /**
-     * Get due reviews for a specific book
-     * 
-     * @param bookId The book ID
-     * @return List of due reviews
-     */
-    @GetMapping("/due/book/{bookId}")
-    public List<Review> getDueReviewsByBook(@PathVariable Long bookId) {
-        return reviewService.findDueReviewsByBook(bookId);
     }
 }

@@ -14,7 +14,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -27,6 +29,7 @@ public class ReviewService {
     private final CardRepo cardRepo;
     private final SecurityUtils securityUtils;
     private final AuthorizationService authorizationService;
+    private final CardService cardService;
     
     private static final List<String> VALID_RATINGS = Arrays.asList("again", "hard", "good", "easy");
     
@@ -35,11 +38,13 @@ public class ReviewService {
             ReviewRepo reviewRepo, 
             CardRepo cardRepo,
             SecurityUtils securityUtils,
-            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            CardService cardService) {
         this.reviewRepo = reviewRepo;
         this.cardRepo = cardRepo;
         this.securityUtils = securityUtils;
         this.authorizationService = authorizationService;
+        this.cardService = cardService;
     }
     
     /**
@@ -250,5 +255,72 @@ public class ReviewService {
     public List<Review> findReviewsByBook(Long bookId) {
         User currentUser = securityUtils.getCurrentUser();
         return reviewRepo.findReviewsByBookId(bookId, currentUser);
+    }
+
+    /**
+     * Get review statistics for a specific deck
+     * 
+     * @param deckId Deck ID
+     * @return Map containing statistics about the deck's reviews
+     */
+    public Map<String, Object> getDeckReviewStatistics(Long deckId) {
+        User currentUser = securityUtils.getCurrentUser();
+        LocalDateTime now = LocalDateTime.now();
+        
+        // Get all reviews for this deck's cards
+        List<Review> allReviews = reviewRepo.findDueReviewsByDeckId(currentUser, deckId, now);
+        
+        // Get cards due for review
+        List<Card> dueCards = findDueCardsForDeck(deckId);
+        
+        // Get all cards in the deck (via service to enforce access control)
+        List<Card> allCards = cardService.getCardsByDeck(deckId);
+        
+        // Calculate statistics
+        int totalCards = allCards.size();
+        int dueCardsCount = dueCards.size();
+        int reviewedCardsCount = totalCards - dueCardsCount;
+        
+        // Count reviews by result
+        long againCount = allReviews.stream()
+            .filter(r -> r.getLastResult() == Review.Rating.AGAIN)
+            .count();
+        
+        long hardCount = allReviews.stream()
+            .filter(r -> r.getLastResult() == Review.Rating.HARD)
+            .count();
+        
+        long goodCount = allReviews.stream()
+            .filter(r -> r.getLastResult() == Review.Rating.GOOD)
+            .count();
+        
+        long easyCount = allReviews.stream()
+            .filter(r -> r.getLastResult() == Review.Rating.EASY)
+            .count();
+        
+        // Calculate performance metrics
+        double totalReviews = againCount + hardCount + goodCount + easyCount;
+        double successRate = totalReviews > 0 ? 
+                ((goodCount + easyCount) / totalReviews) * 100.0 : 0.0;
+        
+        // Calculate average interval
+        double avgInterval = allReviews.stream()
+            .mapToInt(Review::getInterval)
+            .average()
+            .orElse(0.0);
+        
+        // Compile all statistics
+        Map<String, Object> statistics = new HashMap<>();
+        statistics.put("totalCards", totalCards);
+        statistics.put("dueCards", dueCardsCount);
+        statistics.put("reviewedCards", reviewedCardsCount);
+        statistics.put("againCount", againCount);
+        statistics.put("hardCount", hardCount);
+        statistics.put("goodCount", goodCount);
+        statistics.put("easyCount", easyCount);
+        statistics.put("successRate", successRate);
+        statistics.put("averageInterval", avgInterval);
+        
+        return statistics;
     }
 }
