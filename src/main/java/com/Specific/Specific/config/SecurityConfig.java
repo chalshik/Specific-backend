@@ -38,6 +38,7 @@ public class SecurityConfig {
                 auth.requestMatchers("/user/direct-register").permitAll();
                 auth.requestMatchers("/user/db-test").permitAll();
                 auth.requestMatchers("/user/auth-test").permitAll();
+                auth.requestMatchers("/user/firebase-verify").permitAll();
                 auth.requestMatchers("/health").permitAll();
                 auth.requestMatchers("/translation/**").permitAll();
                 

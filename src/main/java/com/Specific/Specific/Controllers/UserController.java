@@ -22,6 +22,10 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
+import com.google.firebase.auth.FirebaseToken;
+
 @RestController
 @RequestMapping("/user")
 public class UserController {
@@ -312,6 +316,56 @@ public class UserController {
         }
         
         // Include environment details
+        result.put("profiles", Arrays.toString(environment.getActiveProfiles()));
+        result.put("firebaseEnabled", firebaseEnabled);
+        
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Direct test endpoint for verifying Firebase tokens and returning detailed debugging info
+     */
+    @GetMapping("/firebase-verify")
+    public ResponseEntity<?> testFirebaseToken(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "processing");
+        
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            result.put("status", "error");
+            result.put("message", "No valid Authorization header found");
+            return ResponseEntity.ok(result);
+        }
+        
+        String token = authHeader.replace("Bearer ", "");
+        result.put("tokenLength", token.length());
+        result.put("tokenPreview", token.substring(0, Math.min(10, token.length())) + "...");
+        
+        if (!firebaseEnabled) {
+            result.put("status", "error");
+            result.put("message", "Firebase authentication is disabled");
+            return ResponseEntity.ok(result);
+        }
+        
+        try {
+            FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(token);
+            result.put("status", "success");
+            result.put("uid", decodedToken.getUid());
+            result.put("email", decodedToken.getEmail());
+            result.put("issuer", decodedToken.getIssuer());
+            result.put("claims", decodedToken.getClaims());
+        } catch (FirebaseAuthException e) {
+            result.put("status", "error");
+            result.put("errorCode", e.getErrorCode());
+            result.put("errorMessage", e.getMessage());
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("exceptionType", e.getClass().getName());
+            result.put("errorMessage", e.getMessage());
+        }
+        
+        // Environment details
         result.put("profiles", Arrays.toString(environment.getActiveProfiles()));
         result.put("firebaseEnabled", firebaseEnabled);
         
