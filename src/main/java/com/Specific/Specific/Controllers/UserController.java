@@ -6,6 +6,7 @@ import com.Specific.Specific.Services.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -45,6 +46,16 @@ public class UserController {
             logger.info("Successfully registered user with ID: {}", savedUser.getId());
             
             return ResponseEntity.ok(savedUser);
+        } catch (DataAccessException e) {
+            logger.error("Database access error during registration: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiResponse.error("Database error. Please try again later.")
+            );
+        } catch (IllegalArgumentException e) {
+            logger.error("Validation error during registration: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                ApiResponse.error(e.getMessage())
+            );
         } catch (Exception e) {
             logger.error("Error during user registration: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -71,6 +82,12 @@ public class UserController {
             User user = new User(username, firebaseUid);
             User savedUser = userService.addUser(user);
             return ResponseEntity.ok(savedUser);
+        } catch (DataAccessException e) {
+            String errorMessage = "Database access error: " + e.getMessage();
+            logger.error("Debug registration database error: {}", errorMessage, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiResponse.error(errorMessage)
+            );
         } catch (Exception e) {
             logger.error("Debug registration error: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body(
@@ -99,6 +116,11 @@ public class UserController {
             User newUser = new User(username, firebaseUid);
             User savedUser = userService.addUser(newUser);
             return ResponseEntity.ok(savedUser);
+        } catch (DataAccessException e) {
+            logger.error("Test registration database error: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiResponse.error("Database error: " + e.getMessage())
+            );
         } catch (Exception e) {
             logger.error("Test registration error: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body(
@@ -128,6 +150,12 @@ public class UserController {
             User newUser = new User(username, firebaseUid);
             User savedUser = userService.addUser(newUser);
             return ResponseEntity.ok(savedUser);
+        } catch (DataAccessException e) {
+            String errorMessage = "Database error: " + e.getMessage();
+            logger.error("Debug test registration database error: {}", errorMessage, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiResponse.error(errorMessage)
+            );
         } catch (Exception e) {
             logger.error("Debug test registration error: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body(

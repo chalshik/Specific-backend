@@ -4,9 +4,11 @@ services:
     env: docker
     plan: free
     healthCheckPath: /health
+    buildCommand: "./mvnw clean package -DskipTests"
+    startCommand: "java -jar target/*.jar"
     envVars:
       - key: DATABASE_PASSWORD
-        sync: false
+        value: SpecificPostgre
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false
       - key: DEEPL_API_KEY
@@ -14,4 +16,6 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
       - key: PORT
-        value: 8080 
+        value: 8080
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAM=512m -XX:+UseSerialGC -Xss512k -Dspring.datasource.hikari.maximumPoolSize=3" 
