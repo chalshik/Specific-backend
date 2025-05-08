@@ -18,4 +18,4 @@ services:
       - key: PORT
         value: 8080
       - key: JAVA_OPTS
-        value: "-XX:MaxRAM=512m -XX:+UseSerialGC -Xss512k -Dspring.datasource.hikari.maximumPoolSize=3" 
+        value: "-XX:MaxRAM=512m -XX:+UseSerialGC -Xss512k -Dspring.datasource.hikari.maximumPoolSize=2 -Dhibernate.connection.provider_disables_autocommit=false" 

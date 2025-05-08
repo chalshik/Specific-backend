@@ -10,9 +10,13 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.UnexpectedRollbackException;
 
 import java.sql.SQLException;
@@ -26,21 +30,29 @@ import java.util.Optional;
 public class UserService {
     private static final Logger logger = LoggerFactory.getLogger(UserService.class);
     private final UserRepo userRepo;
+    private final PlatformTransactionManager transactionManager;
     
     @Autowired
-    public UserService(UserRepo userRepo) {
+    public UserService(UserRepo userRepo, PlatformTransactionManager transactionManager) {
         this.userRepo = userRepo;
+        this.transactionManager = transactionManager;
     }
     
     /**
      * Create a new user account or return existing one.
-     * Handles database connection issues gracefully.
+     * Uses manual transaction management to avoid JDBC commit issues.
      * 
      * @param user The user entity to save
      * @return The saved user with generated ID
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED, rollbackFor = Exception.class)
     public User addUser(User user) {
+        // Define transaction properties
+        DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
+        definition.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        definition.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+        
+        TransactionStatus status = transactionManager.getTransaction(definition);
+        
         try {
             logger.info("Attempting to save user: username={}, firebaseUid={}", 
                     user.getUsername(), user.getFirebaseUid());
@@ -51,55 +63,57 @@ public class UserService {
                 throw new IllegalArgumentException("Firebase UID is required");
             }
             
-            // Check if a user with this Firebase UID already exists - without transaction
-            try {
-                Optional<User> existingUser = findExistingUser(user.getFirebaseUid());
-                if (existingUser.isPresent()) {
-                    User existing = existingUser.get();
-                    logger.info("User with firebaseUid {} already exists, returning existing user", 
-                            user.getFirebaseUid());
-                    
-                    // If username is provided and different from existing, update it
-                    if (user.getUsername() != null && !user.getUsername().isEmpty() &&
-                            !user.getUsername().equals(existing.getUsername())) {
-                        existing.setUsername(user.getUsername());
-                        logger.info("Updating username for existing user: {}", user.getUsername());
-                        return userRepo.save(existing);
-                    }
-                    
-                    return existing;
+            // Check if a user with this Firebase UID already exists - outside transaction
+            Optional<User> existingUser = findExistingUser(user.getFirebaseUid());
+            if (existingUser.isPresent()) {
+                User existing = existingUser.get();
+                logger.info("User with firebaseUid {} already exists, returning existing user", 
+                        user.getFirebaseUid());
+                
+                // If username update needed, do it in the transaction
+                if (user.getUsername() != null && !user.getUsername().isEmpty() &&
+                        !user.getUsername().equals(existing.getUsername())) {
+                    existing.setUsername(user.getUsername());
+                    logger.info("Updating username for existing user: {}", user.getUsername());
+                    User updated = userRepo.save(existing);
+                    transactionManager.commit(status);
+                    return updated;
                 }
-            } catch (Exception e) {
-                logger.warn("Error checking for existing user, will attempt to create: {}", e.getMessage());
-                // Continue with creation even if lookup fails
+                
+                // No changes needed, so don't use transaction
+                transactionManager.rollback(status);
+                return existing;
             }
             
             // Create new user
             User savedUser = userRepo.save(user);
             logger.info("Successfully saved new user with ID: {}", savedUser.getId());
+            
+            // Commit transaction
+            transactionManager.commit(status);
             return savedUser;
-        } catch (DataIntegrityViolationException e) {
-            logger.error("DataIntegrityViolation while saving user: {}", e.getMessage(), e);
-            throw new IllegalArgumentException("Could not save user: " + e.getMessage(), e);
-        } catch (JpaSystemException e) {
-            logger.error("JPA system exception while saving user: {}", e.getMessage(), e);
-            throw new IllegalArgumentException("Database connection issue: " + e.getMessage(), e);
-        } catch (DataAccessException e) {
-            logger.error("Database access error: {}", e.getMessage(), e);
-            throw new IllegalArgumentException("Database access error: " + e.getMessage(), e);
-        } catch (UnexpectedRollbackException e) {
-            logger.error("Transaction rolled back: {}", e.getMessage(), e);
-            throw new IllegalArgumentException("Database transaction error: " + e.getMessage(), e);
+            
         } catch (Exception e) {
-            logger.error("Unexpected error while saving user: {}", e.getMessage(), e);
-            throw e;
+            // Log the error
+            logger.error("Error saving user: {}", e.getMessage(), e);
+            
+            // Roll back transaction
+            transactionManager.rollback(status);
+            
+            // Handle specific exceptions
+            if (e instanceof DataIntegrityViolationException) {
+                throw new IllegalArgumentException("Could not save user: " + e.getMessage(), e);
+            } else if (e instanceof DataAccessException) {
+                throw new IllegalArgumentException("Database access error: " + e.getMessage(), e);
+            } else {
+                throw e;
+            }
         }
     }
     
     /**
      * Find a user by Firebase UID without using a transaction
      */
-    @Transactional(propagation = Propagation.SUPPORTS, readOnly = true)
     public Optional<User> findExistingUser(String firebaseUid) {
         try {
             return userRepo.findByFirebaseUid(firebaseUid);
