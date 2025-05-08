@@ -1,5 +1,7 @@
 package com.Specific.Specific.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,20 +15,27 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+     private static final Logger logger = LoggerFactory.getLogger(SecurityConfig.class);
+     
      @Autowired
      private FirebaseAuthFilter firebaseAuthFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        logger.info("Configuring security settings");
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> {
                 // Specific endpoints that are permitted for all users
+                auth.requestMatchers("/").permitAll();
                 auth.requestMatchers("/user/register").permitAll();
+                auth.requestMatchers("/user/debug-register").permitAll();
                 auth.requestMatchers("/user/test").permitAll();
                 auth.requestMatchers("/user/test-register").permitAll();
+                auth.requestMatchers("/user/debug-test-register").permitAll();
+                auth.requestMatchers("/health").permitAll();
                 auth.requestMatchers("/translation/**").permitAll();
                 
                 // Endpoints that require authentication
@@ -37,6 +46,7 @@ public class SecurityConfig {
                 auth.anyRequest().authenticated();
             });
         
+        logger.info("Security configuration completed");
         return http.build();
     }
 } 

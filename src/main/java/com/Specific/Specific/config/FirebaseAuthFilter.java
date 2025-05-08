@@ -7,6 +7,10 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -15,14 +19,47 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 
 @Component
 public class FirebaseAuthFilter extends OncePerRequestFilter {
+    private static final Logger logger = LoggerFactory.getLogger(FirebaseAuthFilter.class);
+    
+    @Value("${firebase.enabled:false}")
+    private boolean firebaseEnabled;
+    
+    private final Environment environment;
+    
+    public FirebaseAuthFilter(Environment environment) {
+        this.environment = environment;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
+        
+        // Skip auth for development profile or if firebase is disabled
+        boolean isDevelopment = Arrays.asList(environment.getActiveProfiles()).contains("dev") || 
+                                !firebaseEnabled;
+        
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+        
+        logger.debug("Request: {} {}, Firebase enabled: {}, Development mode: {}", 
+                method, path, firebaseEnabled, isDevelopment);
+        
+        // Skip auth for registration endpoints
+        if (path.equals("/user/register") || 
+            path.equals("/user/test-register") || 
+            path.equals("/user/debug-register") || 
+            path.equals("/user/debug-test-register") ||
+            path.equals("/health") ||
+            path.startsWith("/translation/")) {
+            chain.doFilter(request, response);
+            return;
+        }
+        
         String header = request.getHeader("Authorization");
 
         if (header != null && header.startsWith("Bearer ")) {
@@ -30,6 +67,8 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
             try {
                 FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(token);
                 String uid = decodedToken.getUid();
+                
+                logger.debug("Authenticated request with Firebase UID: {}", uid);
                 
                 // Store in request attributes for controllers that need access
                 request.setAttribute("firebaseUid", uid);
@@ -53,6 +92,17 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
                 response.getWriter().write("{\"error\":\"" + e.getErrorCode() + "\",\"message\":\"Authentication failed\"}");
                 return;
             }
+        } else if (isDevelopment) {
+            // For development mode, allow requests without tokens
+            logger.debug("Development mode: Proceeding without authentication for {}", path);
+            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                "dev-user",
+                null,
+                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+            );
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        } else {
+            logger.debug("No authentication token found for {}", path);
         }
         
         chain.doFilter(request, response);
