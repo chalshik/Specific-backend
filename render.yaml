@@ -5,7 +5,7 @@ services:
     plan: free
     rootDir: .
     dockerCommand: /app/startup.sh
-    healthCheckPath: /actuator/health
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_USERNAME
         sync: false
