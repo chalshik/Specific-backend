@@ -35,6 +35,9 @@ public class SecurityConfig {
                 auth.requestMatchers("/user/test").permitAll();
                 auth.requestMatchers("/user/test-register").permitAll();
                 auth.requestMatchers("/user/debug-test-register").permitAll();
+                auth.requestMatchers("/user/direct-register").permitAll();
+                auth.requestMatchers("/user/db-test").permitAll();
+                auth.requestMatchers("/user/auth-test").permitAll();
                 auth.requestMatchers("/health").permitAll();
                 auth.requestMatchers("/translation/**").permitAll();
                 
