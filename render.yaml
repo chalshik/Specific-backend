@@ -4,7 +4,7 @@ services:
     env: docker
     plan: free
     rootDir: .
-    dockerCommand: java -Dspring.profiles.active=prod -jar /app/app.jar
+    dockerCommand: /app/startup.sh
     healthCheckPath: /actuator/health
     envVars:
       - key: DATABASE_USERNAME
