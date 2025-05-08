@@ -13,34 +13,28 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-    
-    // Temporarily commented out for testing
-    // @Autowired
-    // private FirebaseAuthFilter firebaseAuthFilter;
+     @Autowired
+     private FirebaseAuthFilter firebaseAuthFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            // Temporarily commented out Firebase filter for testing
-            // .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> {
-                // TEMPORARY: Allow all requests without authentication for testing
-                auth.anyRequest().permitAll();
-                
-                /* Original configuration, temporarily commented out
-                // Public endpoints that don't require authentication
+                // Specific endpoints that are permitted for all users
                 auth.requestMatchers("/user/register").permitAll();
+                auth.requestMatchers("/user/test").permitAll();
+                auth.requestMatchers("/user/test-register").permitAll();
                 auth.requestMatchers("/translation/**").permitAll();
                 
-                // Protected endpoints that require authentication
+                // Endpoints that require authentication
                 auth.requestMatchers("/cards/**").authenticated();
                 auth.requestMatchers("/user/**").authenticated();
                 
-                // Default rule for any other endpoints
+                // The "anyRequest" matcher must be the last one
                 auth.anyRequest().authenticated();
-                */
             });
         
         return http.build();

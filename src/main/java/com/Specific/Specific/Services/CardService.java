@@ -18,12 +18,12 @@ import java.util.List;
  */
 @Service
 public class CardService {
+
     private final CardRepo cardRepo;
     private final DeckService deckService;
     private final BookService bookService;
     private final AuthorizationService authorizationService;
     private final SecurityUtils securityUtils;
-    
     @Autowired
     public CardService(CardRepo cardRepo, DeckService deckService, BookService bookService, 
             AuthorizationService authorizationService, SecurityUtils securityUtils) {

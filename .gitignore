@@ -1,8 +1,36 @@
-HELP.md
+# Firebase credentials
+pragmatic-2e3e7-firebase-adminsdk-fbsvc-5d7f9dfa55.json
+src/main/resources/pragmatic-2e3e7-firebase-adminsdk-fbsvc-5d7f9dfa55.json
+
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Maven
 target/
 !.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+.DS_Store
+
+# Spring Boot
+.spring-boot-devtools/
+
+# Misc
+*.sw?
 
 ### STS ###
 .apt_generated
@@ -13,12 +41,6 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
@@ -28,6 +50,3 @@ target/
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
-
-### VS Code ###
-.vscode/
