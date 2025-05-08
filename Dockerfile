@@ -9,8 +9,9 @@ COPY .mvn .mvn
 # Download dependencies (this layer can be cached)
 RUN mvn dependency:go-offline -B
 
-# Copy source code
+# Copy source code and startup script
 COPY src ./src
+COPY startup.sh ./startup.sh
 
 # Build the application
 RUN mvn package -DskipTests
@@ -22,8 +23,8 @@ WORKDIR /app
 # Copy the built jar file from the build stage
 COPY --from=build /app/target/*.jar app.jar
 
-# Copy startup script
-COPY startup.sh /app/startup.sh
+# Copy startup script from build stage
+COPY --from=build /app/startup.sh /app/startup.sh
 RUN chmod +x /app/startup.sh
 
 # Add health check for container orchestration
