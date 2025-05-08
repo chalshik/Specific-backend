@@ -26,5 +26,8 @@ COPY --from=build /app/target/*.jar app.jar
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:8080/actuator/health || exit 1
 
+# Expose the port for the application
+EXPOSE 8080
+
 # Run the application
 ENTRYPOINT ["java", "-Dspring.profiles.active=prod", "-jar", "/app/app.jar"] 
