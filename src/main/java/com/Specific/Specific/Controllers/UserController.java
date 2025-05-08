@@ -166,7 +166,7 @@ public class UserController {
                 username = "User-" + System.currentTimeMillis(); // Default username
             }
             
-            User newUser = new User(username, firebaseUid);
+        User newUser = new User(username, firebaseUid);
             User savedUser = userService.addUser(newUser);
             return ResponseEntity.ok(savedUser);
         } catch (DataAccessException e) {
@@ -370,5 +370,34 @@ public class UserController {
         result.put("firebaseEnabled", firebaseEnabled);
         
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Direct user access by Firebase UID for testing
+     * Bypasses Firebase token verification for debugging and testing only
+     */
+    @GetMapping("/bypass-auth/{firebaseUid}")
+    public ResponseEntity<?> bypassAuth(@PathVariable String firebaseUid) {
+        logger.info("Bypass auth requested for Firebase UID: {}", firebaseUid);
+        
+        try {
+            User user = userService.findUserByFirebaseUid(firebaseUid);
+            if (user == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("User not found for the provided Firebase UID"));
+            }
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", user.getId());
+            response.put("username", user.getUsername());
+            response.put("firebaseUid", user.getFirebaseUid());
+            response.put("message", "Authentication bypassed for testing");
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error during bypass auth: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("Error retrieving user: " + e.getMessage()));
+        }
     }
 }
