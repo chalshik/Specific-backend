@@ -27,10 +27,7 @@ public class SecurityConfig {
                 auth.requestMatchers("/user/register").permitAll();
                 auth.requestMatchers("/user/test").permitAll();
                 auth.requestMatchers("/user/test-register").permitAll();
-                auth.requestMatchers("/user/firebase-register").permitAll();
                 auth.requestMatchers("/translation/**").permitAll();
-                auth.requestMatchers("/health").permitAll();
-                auth.requestMatchers("/ping").permitAll();
                 
                 // Endpoints that require authentication
                 auth.requestMatchers("/cards/**").authenticated();
