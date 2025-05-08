@@ -9,9 +9,8 @@ COPY .mvn .mvn
 # Download dependencies (this layer can be cached)
 RUN mvn dependency:go-offline -B
 
-# Copy source code and startup script
+# Copy source code
 COPY src ./src
-COPY startup.sh ./startup.sh
 
 # Build the application
 RUN mvn package -DskipTests
@@ -23,13 +22,15 @@ WORKDIR /app
 # Copy the built jar file from the build stage
 COPY --from=build /app/target/*.jar app.jar
 
-# Copy startup script from build stage
-COPY --from=build /app/startup.sh /app/startup.sh
-RUN chmod +x /app/startup.sh
+# Create startup script directly
+RUN echo '#!/bin/sh' > /app/startup.sh && \
+    echo 'echo "Starting application on port ${PORT:-8080}..."' >> /app/startup.sh && \
+    echo 'java -Dspring.profiles.active=prod -jar /app/app.jar' >> /app/startup.sh && \
+    chmod +x /app/startup.sh
 
 # Add health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+  CMD wget -qO- http://localhost:8080/health || exit 1
 
 # Expose the port for the application
 EXPOSE 8080
