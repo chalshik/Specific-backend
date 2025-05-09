@@ -34,7 +34,20 @@ public class DeckService {
      */
     public Deck createDeck(Deck deck) {
         User currentUser = securityUtils.getCurrentUser();
-        currentUser.addDeck(deck);
+        return createDeck(deck, currentUser);
+    }
+    
+    /**
+     * Create a new deck for a specific user
+     * 
+     * @param deck The deck to create
+     * @param user The user who will own the deck
+     * @return The created deck
+     */
+    public Deck createDeck(Deck deck, User user) {
+        if (deck.getUser() == null) {
+            user.addDeck(deck);
+        }
         return deckRepo.save(deck);
     }
     
@@ -56,12 +69,54 @@ public class DeckService {
     }
     
     /**
+     * Get a deck by ID for a specific user
+     * 
+     * @param id The ID of the deck to get
+     * @param user The user requesting the deck
+     * @return The deck
+     * @throws DeckNotFoundException If the deck doesn't exist
+     */
+    public Deck getDeckById(Long id, User user) {
+        Deck deck = deckRepo.findById(id)
+                .orElseThrow(() -> new DeckNotFoundException("Deck not found with ID: " + id));
+        
+        // Verify the given user has access to this deck
+        if (deck.getUser().getId() != user.getId()) {
+            throw new DeckNotFoundException("Deck not found with ID: " + id + " for this user");
+        }
+        
+        return deck;
+    }
+    
+    /**
      * Delete a deck by ID
      * 
      * @param id The ID of the deck to delete
      * @throws DeckNotFoundException If the deck doesn't exist
      */
     public void deleteDeck(Long id) {
+        // Get the current user and verify ownership
+        User currentUser = securityUtils.getCurrentUser();
+        deleteDeck(id, currentUser);
+    }
+    
+    /**
+     * Delete a deck by ID for a specific user
+     * 
+     * @param id The ID of the deck to delete
+     * @param user The user requesting deletion
+     * @throws DeckNotFoundException If the deck doesn't exist
+     */
+    public void deleteDeck(Long id, User user) {
+        // Fetch the deck first to check ownership
+        Deck deck = deckRepo.findById(id)
+                .orElseThrow(() -> new DeckNotFoundException("Deck not found with ID: " + id));
+                
+        // Verify the given user has access to this deck
+        if (deck.getUser().getId() != user.getId()) {
+            throw new DeckNotFoundException("Deck not found with ID: " + id + " for this user");
+        }
+        
         deckRepo.deleteById(id);
     }
     
@@ -72,17 +127,26 @@ public class DeckService {
      */
     public List<Deck> getUserDecks() {
         User currentUser = securityUtils.getCurrentUser();
-        return currentUser.getDecks();
+        return getUserDecks(currentUser);
     }
     
     /**
      * Get all decks for a specific user
+     * 
+     * @param user The user whose decks to get
+     * @return List of decks
+     */
+    public List<Deck> getUserDecks(User user) {
+        return deckRepo.findByUser(user);
+    }
+    
+    /**
+     * Get all decks for a specific user by user ID
      *
      * @return List of decks
      */
     public List<Deck> getDecksByUserId() {
         User currentUser = securityUtils.getCurrentUser();
-
         return deckRepo.findByUser(currentUser);
     }
 }

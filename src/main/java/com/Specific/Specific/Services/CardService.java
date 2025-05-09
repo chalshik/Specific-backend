@@ -24,14 +24,18 @@ public class CardService {
     private final BookService bookService;
     private final AuthorizationService authorizationService;
     private final SecurityUtils securityUtils;
+    private final UserService userService;
+    
     @Autowired
     public CardService(CardRepo cardRepo, DeckService deckService, BookService bookService, 
-            AuthorizationService authorizationService, SecurityUtils securityUtils) {
+            AuthorizationService authorizationService, SecurityUtils securityUtils,
+            UserService userService) {
         this.cardRepo = cardRepo;
         this.deckService = deckService;
         this.bookService = bookService;
         this.authorizationService = authorizationService;
         this.securityUtils = securityUtils;
+        this.userService = userService;
     }
     
     /**
@@ -43,15 +47,38 @@ public class CardService {
     public Card createCard(Card card) {
         // Set the current user
         User currentUser = securityUtils.getCurrentUser();
-        card.setUser(currentUser);
+        return createCard(card, currentUser);
+    }
+    
+    /**
+     * Create a new card for a specific user
+     * 
+     * @param card The card to create
+     * @param user The user who will own the card
+     * @return The created card
+     */
+    public Card createCard(Card card, User user) {
+        // Set the user
+        card.setUser(user);
         
         // Verify that the deck and book exist and belong to the user
-        // This will throw exceptions if not found or not authorized
         if (card.getBook() != null) {
             Book book = bookService.getBookById(card.getBook().getId());
             card.setBook(book);
         }
         return cardRepo.save(card);
+    }
+    
+    /**
+     * Create a new card using Firebase UID
+     * 
+     * @param card The card to create
+     * @param firebaseUid The Firebase UID of the user
+     * @return The created card
+     */
+    public Card createCardWithFirebaseUid(Card card, String firebaseUid) {
+        User user = userService.findUserByFirebaseUid(firebaseUid);
+        return createCard(card, user);
     }
     
     /**
@@ -64,8 +91,25 @@ public class CardService {
     public Card getCardById(Long id) throws CardNotFoundException {
         Card card = cardRepo.findById(id)
             .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
-
-
+        return card;
+    }
+    
+    /**
+     * Get a card by ID for a specific user
+     * 
+     * @param id The ID of the card to get
+     * @param user The user requesting the card
+     * @return The card
+     * @throws CardNotFoundException If the card doesn't exist
+     */
+    public Card getCardById(Long id, User user) throws CardNotFoundException {
+        Card card = cardRepo.findById(id)
+            .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
+        
+        // Verify the user has access to this card
+        if (card.getUser().getId() != user.getId()) {
+            throw new CardNotFoundException("Card not found with ID: " + id + " for this user");
+        }
         
         return card;
     }
@@ -77,7 +121,28 @@ public class CardService {
      */
     public List<Card> getUserCards() {
         User currentUser = securityUtils.getCurrentUser();
-        return cardRepo.findByUser(currentUser);
+        return getUserCards(currentUser);
+    }
+    
+    /**
+     * Get all cards for a specific user
+     * 
+     * @param user The user whose cards to get
+     * @return List of cards
+     */
+    public List<Card> getUserCards(User user) {
+        return cardRepo.findByUser(user);
+    }
+    
+    /**
+     * Get all cards for a user with the given Firebase UID
+     * 
+     * @param firebaseUid The Firebase UID of the user
+     * @return List of cards
+     */
+    public List<Card> getUserCardsByFirebaseUid(String firebaseUid) {
+        User user = userService.findUserByFirebaseUid(firebaseUid);
+        return getUserCards(user);
     }
     
     /**
@@ -89,6 +154,21 @@ public class CardService {
     public List<Card> getCardsByDeck(Long deckId) {
         // First verify the user has access to this deck
         Deck deck = deckService.getDeckById(deckId);
+        
+        // Now get all cards for this deck
+        return cardRepo.findByDeck(deck);
+    }
+    
+    /**
+     * Get all cards in a deck for a specific user
+     * 
+     * @param deckId The ID of the deck
+     * @param user The user requesting the cards
+     * @return List of cards in the deck
+     */
+    public List<Card> getCardsByDeck(Long deckId, User user) {
+        // First verify the user has access to this deck
+        Deck deck = deckService.getDeckById(deckId, user);
         
         // Now get all cards for this deck
         return cardRepo.findByDeck(deck);
@@ -161,6 +241,25 @@ public class CardService {
     }
     
     /**
+     * Delete a card by ID for a specific user
+     * 
+     * @param id The ID of the card to delete
+     * @param user The user requesting deletion
+     * @throws CardNotFoundException If the card doesn't exist
+     */
+    public void deleteCard(Long id, User user) throws CardNotFoundException {
+        Card card = cardRepo.findById(id)
+            .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
+        
+        // Verify the user has access to this card
+        if (card.getUser().getId() != user.getId()) {
+            throw new CardNotFoundException("Card not found with ID: " + id + " for this user");
+        }
+        
+        cardRepo.delete(card);
+    }
+    
+    /**
      * Set the book for a card by book ID
      * 
      * @param card The card to update
@@ -191,6 +290,33 @@ public class CardService {
         // Set the current user
         User currentUser = securityUtils.getCurrentUser();
         card.setUser(currentUser);
+        
+        // Associate the card with the deck using the helper method
+        deck.addCard(card);
+        
+        // Set the book if needed
+        if (card.getBook() != null && card.getBook().getId() > 0) {
+            setCardBook(card, card.getBook().getId());
+        }
+        
+        // Save and return
+        return cardRepo.save(card);
+    }
+    
+    /**
+     * Create a new card and associate it with a deck for a specific user
+     * 
+     * @param card The card to create
+     * @param deckId The ID of the deck to associate with the card
+     * @param user The user who will own the card
+     * @return The created card
+     */
+    public Card createCardInDeck(Card card, Long deckId, User user) {
+        // Get the deck and verify access
+        Deck deck = deckService.getDeckById(deckId, user);
+        
+        // Set the user
+        card.setUser(user);
         
         // Associate the card with the deck using the helper method
         deck.addCard(card);
