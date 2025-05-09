@@ -21,11 +21,8 @@ import java.nio.charset.StandardCharsets;
 public class FirebaseConfig {
     private static final Logger logger = LoggerFactory.getLogger(FirebaseConfig.class);
 
-    @Value("${firebase.credentials.path:firebase-service-account.json}")
-    private String firebaseCredentialsPath;
-    
-    @Value("${firebase.enabled:false}")
-    private boolean firebaseEnabled;
+    // Always disable Firebase
+    private boolean firebaseEnabled = false;
     
     private final Environment environment;
     
@@ -35,44 +32,10 @@ public class FirebaseConfig {
 
     @PostConstruct
     public void init() {
-        if (!firebaseEnabled) {
-            logger.info("Firebase authentication is disabled for testing");
-            return;
-        }
+        // Firebase is completely disabled
+        logger.info("Firebase authentication is disabled");
         
-        try {
-            InputStream serviceAccount = null;
-            
-            // Check if FIREBASE_CREDENTIALS_JSON environment variable contains the actual JSON content
-            String credentialsJson = environment.getProperty("FIREBASE_CREDENTIALS_JSON");
-            if (credentialsJson != null && !credentialsJson.isEmpty() && credentialsJson.trim().startsWith("{")) {
-                logger.info("Using Firebase credentials from environment variable");
-                serviceAccount = new ByteArrayInputStream(credentialsJson.getBytes(StandardCharsets.UTF_8));
-            } else {
-                try {
-                    // Try to load from class path
-                    logger.info("Trying to load Firebase credentials from classpath: {}", firebaseCredentialsPath);
-                    serviceAccount = new ClassPathResource(firebaseCredentialsPath).getInputStream();
-                } catch (IOException e) {
-                    // If not found in classpath, try as a file path
-                    logger.info("Trying to load Firebase credentials from file path: {}", firebaseCredentialsPath);
-                    serviceAccount = new FileInputStream(firebaseCredentialsPath);
-                }
-            }
-
-            FirebaseOptions options = FirebaseOptions.builder()
-                    .setCredentials(GoogleCredentials.fromStream(serviceAccount))
-                    .build();
-
-            // Check if default app already exists to avoid re-initialization
-            if (FirebaseApp.getApps().isEmpty()) {
-                FirebaseApp.initializeApp(options);
-                logger.info("Firebase application has been initialized");
-            }
-        } catch (Exception e) {
-            logger.error("Firebase initialization error", e);
-            throw new RuntimeException("Firebase initialization failed", e);
-        }
+        // No Firebase initialization will occur
     }
 }
 

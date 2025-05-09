@@ -29,8 +29,8 @@ import java.util.Map;
 public class FirebaseAuthFilter extends OncePerRequestFilter {
     private static final Logger logger = LoggerFactory.getLogger(FirebaseAuthFilter.class);
     
-    @Value("${firebase.enabled:false}")
-    private boolean firebaseEnabled;
+    // Always disable Firebase authentication
+    private boolean firebaseEnabled = false;
     
     private final Environment environment;
     
@@ -42,89 +42,68 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         
-        // Skip auth for development profile or if firebase is disabled
-        boolean isDevelopment = Arrays.asList(environment.getActiveProfiles()).contains("dev") || 
-                                !firebaseEnabled;
-        
         String path = request.getRequestURI();
         String method = request.getMethod();
         
-        logger.debug("Request: {} {}, Firebase enabled: {}, Development mode: {}", 
-                method, path, firebaseEnabled, isDevelopment);
+        logger.debug("Request: {} {}, Security disabled, looking for firebaseUid parameter", 
+                method, path);
         
-        // Skip auth for registration endpoints
-        if (path.equals("/user/register") || 
-            path.equals("/user/test-register") || 
-            path.equals("/user/debug-register") || 
-            path.equals("/user/debug-test-register") ||
-            path.equals("/health") ||
-            path.startsWith("/translation/")) {
-            chain.doFilter(request, response);
-            return;
-        }
+        // Try to get firebaseUid from request parameters, headers, or attributes
+        String uid = extractFirebaseUid(request);
         
-        String header = request.getHeader("Authorization");
-
-        if (header != null && header.startsWith("Bearer ")) {
-            String token = header.replace("Bearer ", "");
-            try {
-                FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(token);
-                String uid = decodedToken.getUid();
-                
-                logger.debug("Authenticated request with Firebase UID: {}", uid);
-                
-                // Store in request attributes for controllers that need access
-                request.setAttribute("firebaseUid", uid);
-                
-                // Create Spring Security Authentication object
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    uid,
-                    null,
-                    Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
-                );
-                
-                // Set authentication in Security Context
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            } catch (FirebaseAuthException e) {
-                // Log error details
-                logger.error("Firebase Authentication error: Code: {}, Message: {}, Full Error: {}", 
-                            e.getErrorCode(), e.getMessage(), e, e);
-                
-                // Include more detailed information in the response
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("error", e.getErrorCode());
-                errorResponse.put("message", "Authentication failed");
-                errorResponse.put("details", e.getMessage());
-                
-                // Return appropriate HTTP status and error message
-                response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                response.setContentType("application/json");
-                response.getWriter().write(new ObjectMapper().writeValueAsString(errorResponse));
-                return;
-            } catch (Exception e) {
-                // Log general exceptions that might occur during authentication
-                logger.error("Unexpected error during authentication: {}", e.getMessage(), e);
-                
-                // Return appropriate HTTP status and error message
-                response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-                response.setContentType("application/json");
-                response.getWriter().write("{\"error\":\"INTERNAL_ERROR\",\"message\":\"Authentication failed due to an internal error\"}");
-                return;
-            }
-        } else if (isDevelopment) {
-            // For development mode, allow requests without tokens
-            logger.debug("Development mode: Proceeding without authentication for {}", path);
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                "dev-user",
-                null,
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
-            );
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+        // If no firebaseUid found, use default
+        if (uid == null || uid.isEmpty()) {
+            uid = "auto-authenticated-user";
+            logger.debug("No firebaseUid found, using default: {}", uid);
         } else {
-            logger.debug("No authentication token found for {}", path);
+            logger.debug("Found firebaseUid in request: {}", uid);
         }
         
+        // Store in request attributes for controllers that need access
+        request.setAttribute("firebaseUid", uid);
+        
+        // Create Spring Security Authentication object
+        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+            uid,
+            null,
+            Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+        );
+        
+        // Set authentication in Security Context
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        
+        // Continue with the request
         chain.doFilter(request, response);
+    }
+    
+    /**
+     * Extract the firebaseUid from various locations in the request
+     * - Request parameter
+     * - Request header
+     * - Request attribute
+     * - Request body (if applicable)
+     */
+    private String extractFirebaseUid(HttpServletRequest request) {
+        // Try from request parameter
+        String uid = request.getParameter("firebaseUid");
+        if (uid != null && !uid.isEmpty()) {
+            return uid;
+        }
+        
+        // Try from header
+        uid = request.getHeader("X-Firebase-Uid");
+        if (uid != null && !uid.isEmpty()) {
+            return uid;
+        }
+        
+        // Try from Authorization header without Bearer prefix
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && !authHeader.startsWith("Bearer ")) {
+            return authHeader;
+        }
+        
+        // If not found, return null
+        return null;
     }
 }
 

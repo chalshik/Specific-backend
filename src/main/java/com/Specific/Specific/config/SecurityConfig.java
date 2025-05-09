@@ -17,41 +17,24 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
      private static final Logger logger = LoggerFactory.getLogger(SecurityConfig.class);
      
-     @Autowired
-     private FirebaseAuthFilter firebaseAuthFilter;
+     // Commented out Firebase filter as we're disabling security
+     // @Autowired
+     // private FirebaseAuthFilter firebaseAuthFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        logger.info("Configuring security settings");
+        logger.info("Configuring security settings - ALL SECURITY DISABLED");
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            // Remove Firebase auth filter
+            // .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> {
-                // Specific endpoints that are permitted for all users
-                auth.requestMatchers("/").permitAll();
-                auth.requestMatchers("/user/register").permitAll();
-                auth.requestMatchers("/user/debug-register").permitAll();
-                auth.requestMatchers("/user/test").permitAll();
-                auth.requestMatchers("/user/test-register").permitAll();
-                auth.requestMatchers("/user/debug-test-register").permitAll();
-                auth.requestMatchers("/user/direct-register").permitAll();
-                auth.requestMatchers("/user/db-test").permitAll();
-                auth.requestMatchers("/user/auth-test").permitAll();
-                auth.requestMatchers("/user/firebase-verify").permitAll();
-                auth.requestMatchers("/user/bypass-auth/**").permitAll();
-                auth.requestMatchers("/health").permitAll();
-                auth.requestMatchers("/translation/**").permitAll();
-                
-                // Endpoints that require authentication
-                auth.requestMatchers("/cards/**").authenticated();
-                auth.requestMatchers("/user/**").authenticated();
-                
-                // The "anyRequest" matcher must be the last one
-                auth.anyRequest().authenticated();
+                // Permit ALL requests without authentication
+                auth.anyRequest().permitAll();
             });
         
-        logger.info("Security configuration completed");
+        logger.info("Security configuration completed - ALL ENDPOINTS ARE PUBLIC");
         return http.build();
     }
 } 

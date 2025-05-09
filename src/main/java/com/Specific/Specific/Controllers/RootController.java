@@ -70,9 +70,4 @@ public class RootController {
         
         return status;
     }
-    
-    @GetMapping("ping")
-    public String ping() {
-        return "pong";
-    }
 } 

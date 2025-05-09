@@ -4,6 +4,8 @@ import com.Specific.Specific.Models.Entities.Review;
 import com.Specific.Specific.Models.RequestModels.ReviewRequest;
 import com.Specific.Specific.Services.ReviewService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,6 +16,7 @@ import java.util.Map;
 @RequestMapping("/api/reviews")
 public class ReviewController {
     
+    private static final Logger logger = LoggerFactory.getLogger(ReviewController.class);
     private final ReviewService reviewService;
     
     @Autowired
@@ -30,7 +33,13 @@ public class ReviewController {
      * @return The created review with the calculated next interval
      */
     @PostMapping
-    public Review submitReview(@Valid @RequestBody ReviewRequest request) {
+    public Review submitReview(
+            @Valid @RequestBody ReviewRequest request,
+            @RequestParam(required = false) String firebaseUid) {
+        logger.info("Submitting review for card ID: {}, rating: {}, firebaseUid: {}", 
+                  request.getCardId(), request.getRating(), 
+                  firebaseUid != null ? firebaseUid : "from auth context");
+        
         return reviewService.processReview(request.getCardId(), request.getRating());
     }
     
@@ -42,7 +51,12 @@ public class ReviewController {
      * @return Statistics about the deck's reviews
      */
     @GetMapping("/stats/deck/{deckId}")
-    public Map<String, Object> getDeckReviewStats(@PathVariable Long deckId) {
+    public Map<String, Object> getDeckReviewStats(
+            @PathVariable Long deckId,
+            @RequestParam(required = false) String firebaseUid) {
+        logger.info("Getting review stats for deck ID: {}, firebaseUid: {}", 
+                  deckId, firebaseUid != null ? firebaseUid : "from auth context");
+        
         return reviewService.getDeckReviewStatistics(deckId);
     }
     
@@ -54,7 +68,12 @@ public class ReviewController {
      * @return List of reviews for the card
      */
     @GetMapping("/history/card/{cardId}")
-    public List<Review> getCardReviewHistory(@PathVariable Long cardId) {
+    public List<Review> getCardReviewHistory(
+            @PathVariable Long cardId,
+            @RequestParam(required = false) String firebaseUid) {
+        logger.info("Getting review history for card ID: {}, firebaseUid: {}", 
+                  cardId, firebaseUid != null ? firebaseUid : "from auth context");
+        
         return reviewService.findReviewsByCard(cardId);
     }
 }
