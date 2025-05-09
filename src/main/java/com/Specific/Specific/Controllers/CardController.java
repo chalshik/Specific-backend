@@ -2,6 +2,7 @@ package com.Specific.Specific.Controllers;
 
 import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.User;
+import com.Specific.Specific.Models.Entities.Deck;
 import com.Specific.Specific.Models.ResponseModels.ApiResponse;
 import com.Specific.Specific.Services.CardService;
 import com.Specific.Specific.Services.ReviewService;
@@ -145,20 +146,42 @@ public class CardController {
             @PathVariable Long deckId, 
             @RequestBody Card card,
             @RequestParam(required = false) String firebaseUid) {
-        // Extract Firebase UID from card or request parameter
-        String uid = card.getFirebaseUid() != null ? card.getFirebaseUid() : 
-                    (firebaseUid != null ? firebaseUid : "auto-authenticated-user");
-        
-        logger.info("Creating card in deck ID: {}, firebaseUid: {}", deckId, uid);
-        
-        // Get user directly
-        User user = userService.findUserByFirebaseUid(uid);
-        
-        // Set the user ID of the request to match existing user in DB if needed
-        card.setUser(user);
-        
-        // Create card with user object
-        return cardService.createCardInDeck(card, deckId, user);
+        try {
+            // Extract Firebase UID from card or request parameter
+            String uid = card.getFirebaseUid() != null ? card.getFirebaseUid() : 
+                        (firebaseUid != null ? firebaseUid : "auto-authenticated-user");
+            
+            logger.info("Creating card in deck ID: {}, firebaseUid: {}", deckId, uid);
+            
+            // Get user directly
+            User user = userService.findUserByFirebaseUid(uid);
+            if (user == null) {
+                logger.error("User not found with Firebase UID: {}", uid);
+                throw new RuntimeException("User with Firebase UID not found: " + uid);
+            }
+            
+            logger.info("Found user: id={}, username={}, firebaseUid={}", 
+                      user.getId(), user.getUsername(), user.getFirebaseUid());
+            
+            // Set the user ID of the request to match existing user in DB if needed
+            card.setUser(user);
+            
+            // Pre-set deck association in card
+            Deck deck = new Deck();
+            deck.setId(deckId);
+            card.setDeck(deck);
+            
+            logger.info("Card prepared for creation: front={}, back={}, user={}, deck={}", 
+                      card.getFront(), card.getBack(), user.getId(), deckId);
+            
+            // Create card with user object
+            Card createdCard = cardService.createCardInDeck(card, deckId, user);
+            logger.info("Card created successfully with ID: {}", createdCard.getId());
+            return createdCard;
+        } catch (Exception e) {
+            logger.error("Error creating card in deck: {}", e.getMessage(), e);
+            throw e;
+        }
     }
     
     /**

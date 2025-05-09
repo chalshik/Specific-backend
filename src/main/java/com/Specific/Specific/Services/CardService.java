@@ -1,6 +1,7 @@
 package com.Specific.Specific.Services;
 
 import com.Specific.Specific.Except.CardNotFoundException;
+import com.Specific.Specific.Except.DeckNotFoundException;
 import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.Deck;
 import com.Specific.Specific.Models.Entities.User;
@@ -9,6 +10,8 @@ import com.Specific.Specific.utils.SecurityUtils;
 import com.Specific.Specific.Repository.CardRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
@@ -26,6 +29,7 @@ public class CardService {
     private final AuthorizationService authorizationService;
     private final SecurityUtils securityUtils;
     private final UserService userService;
+    private static final Logger logger = LoggerFactory.getLogger(CardService.class);
     
     @Autowired
     public CardService(CardRepo cardRepo, DeckService deckService, BookService bookService, 
@@ -360,21 +364,35 @@ public class CardService {
      * @return The created card
      */
     public Card createCardInDeck(Card card, Long deckId, User user) {
-        // Get the deck and verify access
-        Deck deck = deckService.getDeckById(deckId, user);
-        
-        // Set the user
-        card.setUser(user);
-        
-        // Associate the card with the deck using the helper method
-        deck.addCard(card);
-        
-        // Set the book if needed
-        if (card.getBook() != null && card.getBook().getId() > 0) {
-            setCardBook(card, card.getBook().getId());
+        try {
+            // Get the deck and verify access
+            Deck deck = deckService.getDeckById(deckId, user);
+            
+            if (deck == null) {
+                throw new DeckNotFoundException("Deck not found with ID: " + deckId);
+            }
+            
+            // Set the user
+            card.setUser(user);
+            
+            // Ensure deck association is set correctly
+            card.setDeck(deck);
+            
+            // Alternative approach instead of using helper method
+            // cards.add(card) is called within the helper method
+            // deck.addCard(card);
+            
+            // Set the book if needed
+            if (card.getBook() != null && card.getBook().getId() > 0) {
+                setCardBook(card, card.getBook().getId());
+            }
+            
+            // Save and return
+            return cardRepo.save(card);
+        } catch (Exception e) {
+            logger.error("Error creating card in deck: deckId={}, userId={}, error={}", 
+                      deckId, user.getId(), e.getMessage());
+            throw e;
         }
-        
-        // Save and return
-        return cardRepo.save(card);
     }
 }
