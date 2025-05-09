@@ -86,13 +86,24 @@ public class ReviewService {
      * @return The new saved Review entity
      */
     public Review processReview(Long cardId, String rating) {
+        // Get current user
+        User currentUser = securityUtils.getCurrentUser();
+        return processReview(cardId, rating, currentUser);
+    }
+    
+    /**
+     * Process a review of a card using the SM-2 algorithm with a specific user.
+     * 
+     * @param cardId Card being reviewed
+     * @param rating User rating (again, hard, good, easy)
+     * @param user The user performing the review
+     * @return The new saved Review entity
+     */
+    public Review processReview(Long cardId, String rating, User user) {
         // Validate rating
         if (!VALID_RATINGS.contains(rating.toLowerCase())) {
             throw new InvalidReviewRatingException("Invalid rating: " + rating + ". Must be one of: again, hard, good, easy");
         }
-        
-        // Get current user
-        User currentUser = securityUtils.getCurrentUser();
         
         // Find the card
         Card card = cardRepo.findById(cardId)
@@ -105,7 +116,7 @@ public class ReviewService {
         LocalDateTime reviewDate = LocalDateTime.now();
         
         // Fetch latest review for card-user pair, or initialize for new card
-        Optional<Review> latestReviewOpt = reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, currentUser);
+        Optional<Review> latestReviewOpt = reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, user);
         
         Review latestReview;
         if (latestReviewOpt.isPresent()) {
@@ -113,7 +124,7 @@ public class ReviewService {
         } else {
             // Default values for a new card (first review)
             latestReview = createReview(
-                currentUser, card, reviewDate,
+                user, card, reviewDate,
                 2.5, // Default ease factor in SM-2
                 0,   // Start with 0 day interval
                 0,   // No prior repetitions
@@ -162,7 +173,7 @@ public class ReviewService {
 
         // Create the new review using the factory method
         Review newReview = createReview(
-            currentUser, card, reviewDate,
+            user, card, reviewDate,
             newEaseFactor, newInterval, newRepetitions, newRating
         );
 
@@ -191,7 +202,18 @@ public class ReviewService {
      */
     public List<Review> findDueReviewsByDeck(Long deckId) {
         User currentUser = securityUtils.getCurrentUser();
-        return reviewRepo.findDueReviewsByDeckId(currentUser, deckId, LocalDateTime.now());
+        return findDueReviewsByDeck(deckId, currentUser);
+    }
+    
+    /**
+     * Find due reviews for a specific deck for a specific user
+     * 
+     * @param deckId Deck ID
+     * @param user The user who owns the reviews
+     * @return List of due reviews
+     */
+    public List<Review> findDueReviewsByDeck(Long deckId, User user) {
+        return reviewRepo.findDueReviewsByDeckId(user, deckId, LocalDateTime.now());
     }
     
     /**
@@ -202,7 +224,18 @@ public class ReviewService {
      */
     public List<Review> findDueReviewsByBook(Long bookId) {
         User currentUser = securityUtils.getCurrentUser();
-        return reviewRepo.findDueReviewsByBookId(bookId, currentUser, LocalDateTime.now());
+        return findDueReviewsByBook(bookId, currentUser);
+    }
+    
+    /**
+     * Find due reviews for a specific book for a specific user
+     * 
+     * @param bookId Book ID
+     * @param user The user who owns the reviews
+     * @return List of due reviews
+     */
+    public List<Review> findDueReviewsByBook(Long bookId, User user) {
+        return reviewRepo.findDueReviewsByBookId(bookId, user, LocalDateTime.now());
     }
     
     /**
@@ -213,13 +246,23 @@ public class ReviewService {
      */
     public List<Review> findReviewsByCard(Long cardId) {
         User currentUser = securityUtils.getCurrentUser();
-        
+        return findReviewsByCard(cardId, currentUser);
+    }
+    
+    /**
+     * Find all reviews for a specific card for a specific user
+     * 
+     * @param cardId Card ID
+     * @param user The user who owns the reviews
+     * @return List of reviews for the card
+     */
+    public List<Review> findReviewsByCard(Long cardId, User user) {
         // Find the card
         Card card = cardRepo.findById(cardId)
                 .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
         
         // Get all reviews for this card-user pair, not just the latest one
-        return reviewRepo.findByCardAndUserOrderByReviewDateDesc(card, currentUser);
+        return reviewRepo.findByCardAndUserOrderByReviewDateDesc(card, user);
     }
     
     /**
@@ -231,7 +274,19 @@ public class ReviewService {
      */
     public List<Card> findDueCardsForDeck(Long deckId) {
         User currentUser = securityUtils.getCurrentUser();
-        return reviewRepo.findDueCardsForDeck(currentUser, deckId, LocalDateTime.now());
+        return findDueCardsForDeck(deckId, currentUser);
+    }
+    
+    /**
+     * Find cards that are due for review in a specific deck for a specific user
+     * This optimized method directly returns the cards without filtering
+     * 
+     * @param deckId Deck ID
+     * @param user The user who owns the cards
+     * @return List of due cards
+     */
+    public List<Card> findDueCardsForDeck(Long deckId, User user) {
+        return reviewRepo.findDueCardsForDeck(user, deckId, LocalDateTime.now());
     }
     
     /**
@@ -243,7 +298,19 @@ public class ReviewService {
      */
     public List<Card> findDueCardsForBook(Long bookId) {
         User currentUser = securityUtils.getCurrentUser();
-        return reviewRepo.findDueCardsForBook(currentUser, bookId, LocalDateTime.now());
+        return findDueCardsForBook(bookId, currentUser);
+    }
+    
+    /**
+     * Find cards that are due for review in a specific book for a specific user
+     * This optimized method directly returns the cards without filtering
+     * 
+     * @param bookId Book ID
+     * @param user The user who owns the cards
+     * @return List of due cards
+     */
+    public List<Card> findDueCardsForBook(Long bookId, User user) {
+        return reviewRepo.findDueCardsForBook(user, bookId, LocalDateTime.now());
     }
     
     /**
@@ -254,7 +321,18 @@ public class ReviewService {
      */
     public List<Review> findReviewsByBook(Long bookId) {
         User currentUser = securityUtils.getCurrentUser();
-        return reviewRepo.findReviewsByBookId(bookId, currentUser);
+        return findReviewsByBook(bookId, currentUser);
+    }
+    
+    /**
+     * Find all reviews for cards from a specific book for a specific user
+     * 
+     * @param bookId Book ID
+     * @param user The user who owns the reviews
+     * @return List of reviews
+     */
+    public List<Review> findReviewsByBook(Long bookId, User user) {
+        return reviewRepo.findReviewsByBookId(bookId, user);
     }
 
     /**
@@ -265,16 +343,27 @@ public class ReviewService {
      */
     public Map<String, Object> getDeckReviewStatistics(Long deckId) {
         User currentUser = securityUtils.getCurrentUser();
+        return getDeckReviewStatistics(deckId, currentUser);
+    }
+    
+    /**
+     * Get review statistics for a specific deck for a specific user
+     * 
+     * @param deckId Deck ID
+     * @param user The user who owns the reviews
+     * @return Map containing statistics about the deck's reviews
+     */
+    public Map<String, Object> getDeckReviewStatistics(Long deckId, User user) {
         LocalDateTime now = LocalDateTime.now();
         
         // Get all reviews for this deck's cards
-        List<Review> allReviews = reviewRepo.findDueReviewsByDeckId(currentUser, deckId, now);
+        List<Review> allReviews = reviewRepo.findDueReviewsByDeckId(user, deckId, now);
         
         // Get cards due for review
-        List<Card> dueCards = findDueCardsForDeck(deckId);
+        List<Card> dueCards = findDueCardsForDeck(deckId, user);
         
         // Get all cards in the deck (via service to enforce access control)
-        List<Card> allCards = cardService.getCardsByDeck(deckId);
+        List<Card> allCards = cardService.getCardsByDeck(deckId, user);
         
         // Calculate statistics
         int totalCards = allCards.size();

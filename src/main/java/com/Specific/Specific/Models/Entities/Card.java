@@ -40,6 +40,10 @@ public class Card {
     @JoinColumn(name = "book_id")
     private Book book;
 
+    // Used only for request binding, not persisted
+    @Transient
+    private String firebaseUid;
+
     // Constructors
     public Card() {
     }
@@ -136,5 +140,13 @@ public class Card {
     public void addReview(Review review){
         reviews.add(review);
         review.setCard(this);
+    }
+
+    public String getFirebaseUid() {
+        return firebaseUid;
+    }
+    
+    public void setFirebaseUid(String firebaseUid) {
+        this.firebaseUid = firebaseUid;
     }
 }

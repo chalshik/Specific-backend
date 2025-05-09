@@ -15,6 +15,8 @@ public class ReviewRequest {
     @Pattern(regexp = "(?i)^(again|hard|good|easy)$", message = "Rating must be one of: again, hard, good, easy")
     private String rating;
     
+    private String firebaseUid;
+    
     // Constructors
     public ReviewRequest() {
     }
@@ -22,6 +24,12 @@ public class ReviewRequest {
     public ReviewRequest(Long cardId, String rating) {
         this.cardId = cardId;
         this.rating = rating;
+    }
+    
+    public ReviewRequest(Long cardId, String rating, String firebaseUid) {
+        this.cardId = cardId;
+        this.rating = rating;
+        this.firebaseUid = firebaseUid;
     }
     
     // Getters and Setters
@@ -39,5 +47,13 @@ public class ReviewRequest {
     
     public void setRating(String rating) {
         this.rating = rating;
+    }
+    
+    public String getFirebaseUid() {
+        return firebaseUid;
+    }
+    
+    public void setFirebaseUid(String firebaseUid) {
+        this.firebaseUid = firebaseUid;
     }
 } 

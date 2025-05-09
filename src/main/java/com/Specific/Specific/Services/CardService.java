@@ -228,6 +228,51 @@ public class CardService {
     }
     
     /**
+     * Update a card with a specific user
+     * 
+     * @param id The ID of the card to update
+     * @param cardDetails The updated card details
+     * @param user The user performing the update
+     * @return The updated card
+     * @throws CardNotFoundException If the card doesn't exist
+     */
+    public Card updateCard(Long id, Card cardDetails, User user) throws CardNotFoundException {
+        Card existingCard = cardRepo.findById(id)
+            .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
+            
+        // Verify the user has access to this card
+        if (existingCard.getUser().getId() != user.getId()) {
+            throw new CardNotFoundException("Card not found with ID: " + id + " for this user");
+        }
+
+        // Ensure the user field remains the same
+        cardDetails.setUser(existingCard.getUser());
+        
+        // If deck ID has changed, verify the user has access to the new deck
+        if (!cardDetails.getDeck().equals(existingCard.getDeck())) {
+            Deck deck = deckService.getDeckById(cardDetails.getDeck().getId(), user);
+            cardDetails.setDeck(deck);
+        }
+        
+        // If book has changed, verify the user has access to the new book
+        if ((existingCard.getBook() == null && cardDetails.getBook() != null) || 
+            (existingCard.getBook() != null && cardDetails.getBook() != null && 
+             existingCard.getBook().getId() != cardDetails.getBook().getId())) {
+            Book book = bookService.getBookById(cardDetails.getBook().getId(), user);
+            cardDetails.setBook(book);
+        }
+        
+        // Update fields
+        existingCard.setFront(cardDetails.getFront());
+        existingCard.setBack(cardDetails.getBack());
+        existingCard.setContext(cardDetails.getContext());
+        existingCard.setDeck(cardDetails.getDeck());
+        existingCard.setBook(cardDetails.getBook());
+        
+        return cardRepo.save(existingCard);
+    }
+    
+    /**
      * Delete a card by ID
      * 
      * @param id The ID of the card to delete
