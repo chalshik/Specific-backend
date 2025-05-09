@@ -95,15 +95,8 @@ echo "Get cards response: $CARDS_RESPONSE"
 # Step 6: Get specific card by ID (using first card if available)
 if [[ -n "$CARD1_ID" ]]; then
     echo "6. Getting card by ID"
-    CARD_BY_ID_RESPONSE=$(curl -s -X GET "$API_URL/api/cards/$CARD1_ID" \
-        -H "$CONTENT_TYPE" \
-        -H "Authorization: $FIREBASE_UID")
-    echo "Get card by ID response: $CARD_BY_ID_RESPONSE"
-elif [[ -n "$CARD2_ID" ]]; then
-    echo "6. Getting card by ID"
-    CARD_BY_ID_RESPONSE=$(curl -s -X GET "$API_URL/api/cards/$CARD2_ID" \
-        -H "$CONTENT_TYPE" \
-        -H "Authorization: $FIREBASE_UID")
+    CARD_BY_ID_RESPONSE=$(curl -s -X GET "$API_URL/api/cards/$CARD1_ID?firebaseUid=$FIREBASE_UID" \
+        -H "$CONTENT_TYPE")
     echo "Get card by ID response: $CARD_BY_ID_RESPONSE"
 fi
 
@@ -115,27 +108,13 @@ if [[ -n "$CARD1_ID" ]]; then
         -H "Authorization: $FIREBASE_UID" \
         -d "{\"front\":\"Updated: What is REST?\",\"back\":\"Updated: REpresentational State Transfer\",\"firebaseUid\":\"$FIREBASE_UID\",\"deck\":{\"id\":$DECK_ID}}")
     echo "Update card response: $UPDATE_RESPONSE"
-elif [[ -n "$CARD2_ID" ]]; then
-    echo "7. Updating card"
-    UPDATE_RESPONSE=$(curl -s -X PUT "$API_URL/api/cards/$CARD2_ID" \
-        -H "$CONTENT_TYPE" \
-        -H "Authorization: $FIREBASE_UID" \
-        -d "{\"front\":\"Updated: What is Spring Boot?\",\"back\":\"Updated: A Java framework\",\"firebaseUid\":\"$FIREBASE_UID\",\"deck\":{\"id\":$DECK_ID}}")
-    echo "Update card response: $UPDATE_RESPONSE"
 fi
 
 # Step 8: Delete a card if any were created
 if [[ -n "$CARD1_ID" ]]; then
     echo "8. Deleting card"
-    DELETE_CARD_RESPONSE=$(curl -s -X DELETE "$API_URL/api/cards/$CARD1_ID" \
-        -H "$CONTENT_TYPE" \
-        -H "Authorization: $FIREBASE_UID")
-    echo "Delete card response: $DELETE_CARD_RESPONSE"
-elif [[ -n "$CARD2_ID" ]]; then
-    echo "8. Deleting card"
-    DELETE_CARD_RESPONSE=$(curl -s -X DELETE "$API_URL/api/cards/$CARD2_ID" \
-        -H "$CONTENT_TYPE" \
-        -H "Authorization: $FIREBASE_UID")
+    DELETE_CARD_RESPONSE=$(curl -s -X DELETE "$API_URL/api/cards/$CARD1_ID?firebaseUid=$FIREBASE_UID" \
+        -H "$CONTENT_TYPE")
     echo "Delete card response: $DELETE_CARD_RESPONSE"
 fi
 

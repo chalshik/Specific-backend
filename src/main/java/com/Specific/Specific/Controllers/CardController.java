@@ -103,15 +103,27 @@ public class CardController {
             @PathVariable Long cardId,
             @RequestParam(required = false) String firebaseUid,
             @RequestBody(required = false) Object requestBody) {
-        // Extract Firebase UID from various sources
-        String uid = extractFirebaseUid(firebaseUid, requestBody);
-        logger.info("Getting card ID: {}, firebaseUid: {}", cardId, uid);
-        
-        // Get user directly
-        User user = userService.findUserByFirebaseUid(uid);
-        
-        // Call service with user object
-        return cardService.getCardById(cardId, user);
+        try {
+            // Extract Firebase UID from various sources
+            String uid = extractFirebaseUid(firebaseUid, requestBody);
+            logger.info("Getting card ID: {}, firebaseUid: {}", cardId, uid);
+            
+            // Get user directly
+            User user = userService.findUserByFirebaseUid(uid);
+            if (user == null) {
+                logger.error("User not found with Firebase UID: {}", uid);
+                throw new RuntimeException("User with Firebase UID not found: " + uid);
+            }
+            
+            logger.info("Found user for getCardById: id={}, username={}, firebaseUid={}", 
+                      user.getId(), user.getUsername(), user.getFirebaseUid());
+            
+            // Call service with user object
+            return cardService.getCardById(cardId, user);
+        } catch (Exception e) {
+            logger.error("Error retrieving card by ID: {}, error: {}", cardId, e.getMessage(), e);
+            throw e;
+        }
     }
     
     /**
@@ -217,16 +229,28 @@ public class CardController {
             @PathVariable Long cardId,
             @RequestParam(required = false) String firebaseUid,
             @RequestBody(required = false) Object requestBody) {
-        // Extract Firebase UID from various sources
-        String uid = extractFirebaseUid(firebaseUid, requestBody);
-        logger.info("Deleting card ID: {}, firebaseUid: {}", cardId, uid);
-        
-        // Get user directly
-        User user = userService.findUserByFirebaseUid(uid);
-        
-        // Delete card with user object
-        cardService.deleteCard(cardId, user);
-        return ResponseEntity.ok(ApiResponse.success("Card deleted successfully"));
+        try {
+            // Extract Firebase UID from various sources
+            String uid = extractFirebaseUid(firebaseUid, requestBody);
+            logger.info("Deleting card ID: {}, firebaseUid: {}", cardId, uid);
+            
+            // Get user directly
+            User user = userService.findUserByFirebaseUid(uid);
+            if (user == null) {
+                logger.error("User not found with Firebase UID: {}", uid);
+                throw new RuntimeException("User with Firebase UID not found: " + uid);
+            }
+            
+            logger.info("Found user for deleteCard: id={}, username={}, firebaseUid={}", 
+                      user.getId(), user.getUsername(), user.getFirebaseUid());
+            
+            // Delete card with user object
+            cardService.deleteCard(cardId, user);
+            return ResponseEntity.ok(ApiResponse.success("Card deleted successfully"));
+        } catch (Exception e) {
+            logger.error("Error deleting card by ID: {}, error: {}", cardId, e.getMessage(), e);
+            throw e;
+        }
     }
     
     /**
