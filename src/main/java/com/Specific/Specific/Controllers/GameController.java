@@ -7,6 +7,7 @@ import com.Specific.Specific.Models.Game.GameMessage.MessageType;
 import com.Specific.Specific.Models.Game.GameRoom;
 import com.Specific.Specific.Models.Game.GameResult;
 import com.Specific.Specific.Services.GameService;
+import com.Specific.Specific.Services.UserService;
 import com.Specific.Specific.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -23,6 +24,7 @@ public class GameController {
     private final SimpMessagingTemplate messagingTemplate;
     private final GameService gameService;
     private final SecurityUtils securityUtils;
+    private final UserService userService;
     
     // Queue destination prefix for personal messages
     private static final String PERSONAL_QUEUE = "/queue/game";
@@ -30,10 +32,14 @@ public class GameController {
     // Topic destination prefix for room-wide messages
     private static final String ROOM_TOPIC = "/topic/game.room.";
 
-    public GameController(SimpMessagingTemplate messagingTemplate, GameService gameService, SecurityUtils securityUtils) {
+    public GameController(SimpMessagingTemplate messagingTemplate, 
+                          GameService gameService, 
+                          SecurityUtils securityUtils,
+                          UserService userService) {
         this.messagingTemplate = messagingTemplate;
         this.gameService = gameService;
         this.securityUtils = securityUtils;
+        this.userService = userService;
     }
 
     /**
@@ -41,8 +47,26 @@ public class GameController {
      */
     @PostMapping("/api/game/room")
     @ResponseBody
-    public GameRoom createRoom() {
-        return gameService.createRoom();
+    public GameRoom createRoom(@RequestParam(required = false) String firebaseUid) {
+        try {
+            // Get user either from Firebase UID or security context
+            User user;
+            if (firebaseUid != null && !firebaseUid.isEmpty()) {
+                // Use userService to find user by Firebase UID
+                user = userService.findUserByFirebaseUid(firebaseUid);
+                if (user == null) {
+                    throw new RuntimeException("User with Firebase UID not found: " + firebaseUid);
+                }
+            } else {
+                // Fallback to security context
+                user = securityUtils.getCurrentUser();
+            }
+            
+            return gameService.createRoom(user);
+        } catch (Exception e) {
+            log.error("Error creating game room: {}", e.getMessage());
+            throw e;
+        }
     }
 
     /**

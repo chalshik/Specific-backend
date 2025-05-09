@@ -38,10 +38,20 @@ public class GameService {
      */
     public GameRoom createRoom() {
         User currentUser = securityUtils.getCurrentUser();
-        GameRoom room = new GameRoom(currentUser);
+        return createRoom(currentUser);
+    }
+
+    /**
+     * Create a new game room for a specific user
+     * 
+     * @param user The user who will be the host of the room
+     * @return The created room
+     */
+    public GameRoom createRoom(User user) {
+        GameRoom room = new GameRoom(user);
         
         // Get user's cards for the game
-        List<Card> userCards = cardService.getUserCards();
+        List<Card> userCards = cardService.getUserCards(user);
         room.setHostCards(userCards);
         
         activeRooms.put(room.getRoomCode(), room);
