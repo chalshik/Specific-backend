@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class DeckService {
@@ -81,7 +82,9 @@ public class DeckService {
                 .orElseThrow(() -> new DeckNotFoundException("Deck not found with ID: " + id));
         
         // Verify the given user has access to this deck
-        if (deck.getUser().getId() != user.getId()) {
+        // First check by user ID, then by Firebase UID
+        if (deck.getUser().getId() != user.getId() && 
+            !Objects.equals(deck.getUser().getFirebaseUid(), user.getFirebaseUid())) {
             throw new DeckNotFoundException("Deck not found with ID: " + id + " for this user");
         }
         
@@ -113,7 +116,9 @@ public class DeckService {
                 .orElseThrow(() -> new DeckNotFoundException("Deck not found with ID: " + id));
                 
         // Verify the given user has access to this deck
-        if (deck.getUser().getId() != user.getId()) {
+        // First check by user ID, then by Firebase UID
+        if (deck.getUser().getId() != user.getId() && 
+            !Objects.equals(deck.getUser().getFirebaseUid(), user.getFirebaseUid())) {
             throw new DeckNotFoundException("Deck not found with ID: " + id + " for this user");
         }
         

@@ -1,87 +1,60 @@
-# Firebase UID Direct Authentication Test Results
+# Firebase UID Authentication Test Results
 
 ## Overview
-We've successfully implemented and tested direct Firebase UID authentication for several key endpoints. This approach allows the API to identify users through Firebase UID passed in various request formats without relying on complex security filters.
+This document captures the results of testing API endpoints with Firebase UID authentication on the Specific Spring Backend. Tests were conducted using both direct API calls and a test script (`test-anki-endpoints.sh`).
 
 ## Working Endpoints
 
-The following endpoints work correctly with the new direct Firebase UID approach:
+The following endpoints are successfully handling Firebase UID authentication:
 
-1. **User Registration**: `POST /user/register`
-   - FirebaseUID in request body
-   - Successfully creates user and returns user data
+1. **Health Check**: `GET /health`
+   - Returns API status information 
+   - Does not require authentication
 
-2. **Deck Creation**: `POST /anki/add-deck`
-   - FirebaseUID in request body
-   - Successfully creates deck associated with correct user
+2. **User Management**:
+   - `POST /user/register`: Successfully registers new users with Firebase UID
+   - `GET /user/info?firebaseUid={uid}`: Successfully retrieves user information
 
-3. **Get User Decks**: `GET /anki/user-decks?firebaseUid={uid}`
-   - FirebaseUID as query parameter
-   - Successfully returns all decks for specified user
+3. **Deck Management**:
+   - `POST /anki/add-deck`: Successfully creates a deck with Firebase UID
+   - `GET /anki/user-decks?firebaseUid={uid}`: Successfully returns all decks for a user
+   - `DELETE /anki/delete-deck/{deckId}?firebaseUid={uid}`: Successfully deletes a deck
 
-4. **Delete Deck**: `DELETE /anki/delete-deck/{deckId}?firebaseUid={uid}`
-   - FirebaseUID as query parameter
-   - Successfully deletes deck if user is authorized
+## Non-Working Endpoints
 
-## Issues to Address
+The following endpoints have issues with Firebase UID authentication:
 
-The following endpoints had issues in testing:
+1. **Card Management**:
+   - `POST /api/cards/deck/{deckId}`: Returns "Deck not found" error even with valid deck ID
+   - `GET /api/cards/deck/{deckId}`: Not working correctly with Firebase UID
 
-1. **Card Creation**: `POST /api/cards`
-   - Returns "An unexpected error occurred"
-   - Needs investigation into CardController implementation
+## Authentication Methods
 
-2. **User Info**: `GET /user/info`
-   - Returns "User with this Firebase UID not found"
-   - Controller may not be correctly retrieving the FirebaseUID from request body
+The backend accepts Firebase UID in several ways:
 
-3. **Book Creation**: `POST /api/books`
-   - Returns "User with this Firebase UID not found"
-   - BookController may need updates similar to DeckController
+1. As a query parameter: `?firebaseUid={uid}`
+2. In the request body as a JSON field: `{"firebaseUid": "test-user-123"}`
+3. In the `Authorization` header: `Authorization: test-user-123`
 
-4. **Review Submission**: `POST /api/reviews`
-   - Returns "User with this Firebase UID not found"
-   - ReviewController needs updates to use direct FirebaseUID
+## Implementation Details
+
+- The system uses a `DeckController` at path `/anki` which properly extracts Firebase UID from request parameters, body, or defaults.
+- The `CardController` needs investigation as it doesn't appear to properly connect cards to decks when using Firebase UID authentication.
+
+## Testing Script
+
+A Bash script (`test-anki-endpoints.sh`) was created to test the working endpoints. This script:
+
+1. Checks API health
+2. Registers a test user with a specific Firebase UID
+3. Retrieves user information
+4. Creates a test deck
+5. Retrieves all decks for the user
+6. Deletes the test deck for cleanup
 
 ## Next Steps
 
-To complete the implementation, we need to:
-
-1. Update remaining controllers to use the direct FirebaseUID pattern:
-   - CardController
-   - BookController
-   - ReviewController
-   - UserController (for GET /user/info)
-
-2. Ensure all controllers follow this consistent pattern:
-   ```java
-   // Extract FirebaseUID from request
-   String uid = requestParams.getFirebaseUid() != null ? requestParams.getFirebaseUid() : 
-               (firebaseUid != null ? firebaseUid : "auto-authenticated-user");
-                   
-   // Get user directly
-   User user = userService.findUserByFirebaseUid(uid);
-   
-   // Use the user object for the operation
-   return service.performOperation(params, user);
-   ```
-
-3. Add error handling to gracefully handle FirebaseUID issues
-
-4. Update service methods to use the User object directly rather than extracting it from SecurityContext
-
-5. Create a comprehensive test plan to validate all endpoints with various FirebaseUID methods:
-   - In request body
-   - As query parameter
-   - In X-Firebase-Uid header
-   - In Authorization header
-
-## Benefits Observed
-
-Even with partial implementation, we've observed:
-
-1. **Simplicity**: Controllers directly handle authentication without complex chains
-2. **Flexibility**: Multiple ways to pass FirebaseUID work simultaneously  
-3. **Consistency**: Same pattern can be applied to all controllers
-4. **Explicit Security**: Each endpoint clearly handles its own authentication
-5. **Better Debugging**: Error messages clearly indicate authentication issues 
+1. Investigate the `CardController` to understand why card creation fails with Firebase UID
+2. Check how deck association works in card creation endpoints
+3. Ensure proper user and deck validation in the card service classes
+4. Consider implementing additional logging to track Firebase UID handling 

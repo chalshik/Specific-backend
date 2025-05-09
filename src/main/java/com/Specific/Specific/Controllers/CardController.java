@@ -154,6 +154,9 @@ public class CardController {
         // Get user directly
         User user = userService.findUserByFirebaseUid(uid);
         
+        // Set the user ID of the request to match existing user in DB if needed
+        card.setUser(user);
+        
         // Create card with user object
         return cardService.createCardInDeck(card, deckId, user);
     }

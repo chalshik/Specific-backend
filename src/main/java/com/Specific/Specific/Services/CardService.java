@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Service for managing flashcard operations.
@@ -107,7 +108,9 @@ public class CardService {
             .orElseThrow(() -> new CardNotFoundException("Card not found with ID: " + id));
         
         // Verify the user has access to this card
-        if (card.getUser().getId() != user.getId()) {
+        // First check by user ID, then by Firebase UID
+        if (card.getUser().getId() != user.getId() && 
+            !Objects.equals(card.getUser().getFirebaseUid(), user.getFirebaseUid())) {
             throw new CardNotFoundException("Card not found with ID: " + id + " for this user");
         }
         
