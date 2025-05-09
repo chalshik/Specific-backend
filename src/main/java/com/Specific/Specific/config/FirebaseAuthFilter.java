@@ -1,5 +1,6 @@
 package com.Specific.Specific.config;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
@@ -18,8 +19,10 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingRequestWrapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,6 +36,7 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
     private boolean firebaseEnabled = false;
     
     private final Environment environment;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     
     public FirebaseAuthFilter(Environment environment) {
         this.environment = environment;
@@ -42,14 +46,17 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         
-        String path = request.getRequestURI();
-        String method = request.getMethod();
+        // Wrap the request to allow reading the body multiple times
+        ContentCachingRequestWrapper wrappedRequest = new ContentCachingRequestWrapper(request);
+        
+        String path = wrappedRequest.getRequestURI();
+        String method = wrappedRequest.getMethod();
         
         logger.debug("Request: {} {}, Security disabled, looking for firebaseUid parameter", 
                 method, path);
         
         // Try to get firebaseUid from request parameters, headers, or attributes
-        String uid = extractFirebaseUid(request);
+        String uid = extractFirebaseUid(wrappedRequest);
         
         // If no firebaseUid found, use default
         if (uid == null || uid.isEmpty()) {
@@ -60,7 +67,7 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
         }
         
         // Store in request attributes for controllers that need access
-        request.setAttribute("firebaseUid", uid);
+        wrappedRequest.setAttribute("firebaseUid", uid);
         
         // Create Spring Security Authentication object
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
@@ -73,33 +80,63 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         
         // Continue with the request
-        chain.doFilter(request, response);
+        chain.doFilter(wrappedRequest, response);
     }
     
     /**
-     * Extract the firebaseUid from various locations in the request
-     * - Request parameter
-     * - Request header
-     * - Request attribute
-     * - Request body (if applicable)
+     * Extract the firebaseUid from various locations in the request:
+     * 1. Request body
+     * 2. Request parameter
+     * 3. Request header
+     * 4. Authorization header
      */
-    private String extractFirebaseUid(HttpServletRequest request) {
-        // Try from request parameter
-        String uid = request.getParameter("firebaseUid");
-        if (uid != null && !uid.isEmpty()) {
-            return uid;
-        }
-        
-        // Try from header
-        uid = request.getHeader("X-Firebase-Uid");
-        if (uid != null && !uid.isEmpty()) {
-            return uid;
-        }
-        
-        // Try from Authorization header without Bearer prefix
-        String authHeader = request.getHeader("Authorization");
-        if (authHeader != null && !authHeader.startsWith("Bearer ")) {
-            return authHeader;
+    private String extractFirebaseUid(ContentCachingRequestWrapper request) {
+        try {
+            // First try to get from request body for POST/PUT requests
+            if ((request.getMethod().equals("POST") || request.getMethod().equals("PUT")) && 
+                request.getContentType() != null && 
+                request.getContentType().contains("application/json")) {
+                
+                // Read the request body
+                byte[] bodyBytes = request.getContentAsByteArray();
+                if (bodyBytes.length > 0) {
+                    String body = new String(bodyBytes, StandardCharsets.UTF_8);
+                    JsonNode jsonNode = objectMapper.readTree(body);
+                    
+                    // Check if firebaseUid is in the JSON body
+                    if (jsonNode.has("firebaseUid")) {
+                        String uid = jsonNode.get("firebaseUid").asText();
+                        if (uid != null && !uid.isEmpty()) {
+                            logger.debug("Found firebaseUid in request body: {}", uid);
+                            return uid;
+                        }
+                    }
+                }
+            }
+            
+            // Try from request parameter
+            String uid = request.getParameter("firebaseUid");
+            if (uid != null && !uid.isEmpty()) {
+                logger.debug("Found firebaseUid in request parameter: {}", uid);
+                return uid;
+            }
+            
+            // Try from header
+            uid = request.getHeader("X-Firebase-Uid");
+            if (uid != null && !uid.isEmpty()) {
+                logger.debug("Found firebaseUid in X-Firebase-Uid header: {}", uid);
+                return uid;
+            }
+            
+            // Try from Authorization header without Bearer prefix
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && !authHeader.startsWith("Bearer ")) {
+                logger.debug("Found firebaseUid in Authorization header: {}", authHeader);
+                return authHeader;
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error extracting firebaseUid from request: {}", e.getMessage(), e);
         }
         
         // If not found, return null

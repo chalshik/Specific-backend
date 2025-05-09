@@ -7,7 +7,7 @@ import com.Specific.Specific.Models.Game.GameMessage.MessageType;
 import com.Specific.Specific.Models.Game.GameRoom;
 import com.Specific.Specific.Models.Game.GameResult;
 import com.Specific.Specific.Services.GameService;
-import com.Specific.Specific.util.SecurityUtils;
+import com.Specific.Specific.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;

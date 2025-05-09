@@ -6,7 +6,7 @@ import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.Deck;
 import com.Specific.Specific.Services.CardService;
 import com.Specific.Specific.Services.DeckService;
-import com.Specific.Specific.util.SecurityUtils;
+import com.Specific.Specific.utils.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +33,9 @@ public class DeckController {
     public Deck addDeck(@RequestBody RequestDeck requestDeck, 
                         @RequestParam(required = false) String firebaseUid) {
         logger.info("Creating a new deck with title: {}, firebaseUid: {}", 
-                  requestDeck.getTitle(), firebaseUid != null ? firebaseUid : "from auth context");
+                  requestDeck.getTitle(), 
+                  requestDeck.getFirebaseUid() != null ? requestDeck.getFirebaseUid() : 
+                  (firebaseUid != null ? firebaseUid : "from auth context"));
         
         Deck deck = new Deck();
         deck.setTitle(requestDeck.getTitle());

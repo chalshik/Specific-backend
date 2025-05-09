@@ -4,7 +4,7 @@ import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Models.Game.GameRoom;
 import com.Specific.Specific.Models.Game.GameResult;
-import com.Specific.Specific.util.SecurityUtils;
+import com.Specific.Specific.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;

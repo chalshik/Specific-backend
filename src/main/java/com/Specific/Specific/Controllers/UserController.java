@@ -3,7 +3,7 @@ package com.Specific.Specific.Controllers;
 import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Models.ResponseModels.ApiResponse;
 import com.Specific.Specific.Services.UserService;
-import com.Specific.Specific.util.SecurityUtils;
+import com.Specific.Specific.utils.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

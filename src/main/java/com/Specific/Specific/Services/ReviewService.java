@@ -8,7 +8,7 @@ import com.Specific.Specific.Models.Entities.Review;
 import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Repository.CardRepo;
 import com.Specific.Specific.Repository.ReviewRepo;
-import com.Specific.Specific.util.SecurityUtils;
+import com.Specific.Specific.utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
