@@ -1,4 +1,4 @@
-package com.Specific.Specific.Controllers.AnkiController;
+package com.Specific.Specific.Controllers;
 
 import com.Specific.Specific.Models.Entities.Review;
 import com.Specific.Specific.Models.RequestModels.ReviewRequest;

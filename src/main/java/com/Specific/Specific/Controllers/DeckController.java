@@ -1,8 +1,7 @@
-package com.Specific.Specific.Controllers.AnkiController;
+package com.Specific.Specific.Controllers;
 
 import com.Specific.Specific.Models.RequestModels.RequestDeck;
 import com.Specific.Specific.Models.ResponseModels.ApiResponse;
-import com.Specific.Specific.Models.Entities.Card;
 import com.Specific.Specific.Models.Entities.Deck;
 import com.Specific.Specific.Services.CardService;
 import com.Specific.Specific.Services.DeckService;
