@@ -9,6 +9,8 @@ import com.Specific.Specific.Models.Entities.User;
 import com.Specific.Specific.Repository.CardRepo;
 import com.Specific.Specific.Repository.ReviewRepo;
 import com.Specific.Specific.utils.SecurityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +27,8 @@ import java.util.Optional;
  */
 @Service
 public class ReviewService {
+    private static final Logger logger = LoggerFactory.getLogger(ReviewService.class);
+    
     private final ReviewRepo reviewRepo;
     private final CardRepo cardRepo;
     private final SecurityUtils securityUtils;
@@ -100,85 +104,114 @@ public class ReviewService {
      * @return The new saved Review entity
      */
     public Review processReview(Long cardId, String rating, User user) {
-        // Validate rating
-        if (!VALID_RATINGS.contains(rating.toLowerCase())) {
-            throw new InvalidReviewRatingException("Invalid rating: " + rating + ". Must be one of: again, hard, good, easy");
+        try {
+            // Validate rating
+            if (!VALID_RATINGS.contains(rating.toLowerCase())) {
+                throw new InvalidReviewRatingException("Invalid rating: " + rating + ". Must be one of: again, hard, good, easy");
+            }
+            
+            // Find the card
+            Card card = cardRepo.findById(cardId)
+                    .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
+            
+            // TEMPORARY: Skip card ownership verification
+            // authorizationService.verifyCardAccess(card);
+            
+            // Current review time
+            LocalDateTime reviewDate = LocalDateTime.now();
+            
+            // Fetch latest review for card-user pair, or initialize for new card
+            Optional<Review> latestReviewOpt = reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, user);
+            
+            // SM-2 calculations based on user rating
+            int newInterval;
+            double newEaseFactor;
+            int newRepetitions;
+            Review.Rating newRating = null;
+            
+            if (latestReviewOpt.isPresent()) {
+                // This is a follow-up review
+                Review latestReview = latestReviewOpt.get();
+                
+                newEaseFactor = latestReview.getEaseFactor();
+                newRepetitions = latestReview.getRepetitions();
+                
+                switch (rating.toLowerCase()) {
+                    case "again":
+                        // Complete failure - reset interval and reduce ease factor
+                        newInterval = 0;
+                        newEaseFactor = Math.max(1.3, newEaseFactor - 0.2);
+                        newRepetitions = 0;
+                        newRating = Review.Rating.AGAIN;
+                        break;
+                    case "hard":
+                        // Difficult recall - small interval increase and reduce ease
+                        newInterval = (int) Math.max(1, latestReview.getInterval() * 1.2);
+                        newEaseFactor = Math.max(1.3, newEaseFactor - 0.15);
+                        newRepetitions++;
+                        newRating = Review.Rating.HARD;
+                        break;
+                    case "good":
+                        // Successful recall - standard interval increase
+                        newInterval = latestReview.getInterval() == 0 ? 1 : (int) (latestReview.getInterval() * newEaseFactor);
+                        newRepetitions++;
+                        newRating = Review.Rating.GOOD;
+                        break;
+                    case "easy":
+                        // Perfect recall - larger interval increase and boost ease
+                        newInterval = latestReview.getInterval() == 0 ? 1 : (int) (latestReview.getInterval() * newEaseFactor * 1.3);
+                        newEaseFactor = Math.min(2.5, newEaseFactor + 0.1);
+                        newRepetitions++;
+                        newRating = Review.Rating.EASY;
+                        break;
+                    default:
+                        // This should never happen due to the validation above
+                        throw new InvalidReviewRatingException("Invalid rating: " + rating);
+                }
+            } else {
+                // This is the first review for this card
+                newEaseFactor = 2.5; // Default ease factor in SM-2
+                newRepetitions = 1;  // First repetition
+                
+                switch (rating.toLowerCase()) {
+                    case "again":
+                        newInterval = 0;
+                        newRating = Review.Rating.AGAIN;
+                        break;
+                    case "hard":
+                        newInterval = 1;
+                        newRating = Review.Rating.HARD;
+                        break;
+                    case "good":
+                        newInterval = 1;
+                        newRating = Review.Rating.GOOD;
+                        break;
+                    case "easy":
+                        newInterval = 2;
+                        newRating = Review.Rating.EASY;
+                        break;
+                    default:
+                        throw new InvalidReviewRatingException("Invalid rating: " + rating);
+                }
+            }
+
+            // Create the new review
+            Review newReview = new Review();
+            newReview.setUser(user);
+            newReview.setCard(card);
+            newReview.setReviewDate(reviewDate);
+            newReview.setEaseFactor(newEaseFactor);
+            newReview.setInterval(newInterval);
+            newReview.setRepetitions(newRepetitions);
+            newReview.setLastResult(newRating);
+
+            // Save to database and return
+            return reviewRepo.save(newReview);
+        } catch (Exception e) {
+            // Log the exception
+            logger.error("Error processing review for card ID {}: {}", cardId, e.getMessage(), e);
+            throw e;
         }
-        
-        // Find the card
-        Card card = cardRepo.findById(cardId)
-                .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
-        
-        // TEMPORARY: Skip card ownership verification
-        // authorizationService.verifyCardAccess(card);
-        
-        // Current review time
-        LocalDateTime reviewDate = LocalDateTime.now();
-        
-        // Fetch latest review for card-user pair, or initialize for new card
-        Optional<Review> latestReviewOpt = reviewRepo.findTopByCardAndUserOrderByReviewDateDesc(card, user);
-        
-        Review latestReview;
-        if (latestReviewOpt.isPresent()) {
-            latestReview = latestReviewOpt.get();
-        } else {
-            // Default values for a new card (first review)
-            latestReview = createReview(
-                user, card, reviewDate,
-                2.5, // Default ease factor in SM-2
-                0,   // Start with 0 day interval
-                0,   // No prior repetitions
-                null // No prior rating
-            );
-        }
-
-        // SM-2 calculations based on user rating
-        int newInterval;
-        double newEaseFactor = latestReview.getEaseFactor();
-        int newRepetitions = latestReview.getRepetitions();
-        Review.Rating newRating = null;
-
-        switch (rating.toLowerCase()) {
-            case "again":
-                // Complete failure - reset interval and reduce ease factor
-                newInterval = 0;
-                newEaseFactor = Math.max(1.3, newEaseFactor - 0.2);
-                newRepetitions = 0;
-                newRating = Review.Rating.AGAIN;
-                break;
-            case "hard":
-                // Difficult recall - small interval increase and reduce ease
-                newInterval = (int) Math.max(1, latestReview.getInterval() * 1.2);
-                newEaseFactor = Math.max(1.3, newEaseFactor - 0.15);
-                newRepetitions++;
-                newRating = Review.Rating.HARD;
-                break;
-            case "good":
-                // Successful recall - standard interval increase
-                newInterval = latestReview.getInterval() == 0 ? 1 : (int) (latestReview.getInterval() * newEaseFactor);
-                newRepetitions++;
-                newRating = Review.Rating.GOOD;
-                break;
-            case "easy":
-                // Perfect recall - larger interval increase and boost ease
-                newInterval = latestReview.getInterval() == 0 ? 1 : (int) (latestReview.getInterval() * newEaseFactor * 1.3);
-                newEaseFactor = Math.min(2.5, newEaseFactor + 0.1);
-                newRepetitions++;
-                newRating = Review.Rating.EASY;
-                break;
-            default:
-                // This should never happen due to the validation above
-                throw new InvalidReviewRatingException("Invalid rating: " + rating);
-        }
-
-        // Create the new review using the factory method
-        Review newReview = createReview(
-            user, card, reviewDate,
-            newEaseFactor, newInterval, newRepetitions, newRating
-        );
-
-        // Save to database and return
-        return reviewRepo.save(newReview);
     }
     
     /**

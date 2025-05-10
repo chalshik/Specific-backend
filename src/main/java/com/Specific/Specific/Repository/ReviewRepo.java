@@ -37,10 +37,11 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
 
     /**
      * Find reviews that are due for a specific user and deck.
+     * Using PostgreSQL specific interval syntax.
      */
     @Query("SELECT r FROM Review r JOIN r.card c " +
             "WHERE r.user = :user AND c.deck.id = :deckId " +
-            "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
+            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
     List<Review> findDueReviewsByDeckId(
             @Param("user") User user,
             @Param("deckId") Long deckId,
@@ -68,10 +69,11 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     
     /**
      * Find due reviews for cards from a specific book.
+     * Using PostgreSQL specific interval syntax.
      */
     @Query("SELECT r FROM Review r JOIN r.card c " +
             "WHERE c.book.id = :bookId AND r.user = :user " +
-            "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
+            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
     List<Review> findDueReviewsByBookId(
             @Param("bookId") Long bookId,
             @Param("user") User user,
@@ -80,11 +82,11 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
 
     /**
      * Find cards that are due for review for a specific deck.
-     * This leverages the relationship directly instead of requiring filtering in the service layer.
+     * Using PostgreSQL specific interval syntax.
      */
     @Query("SELECT DISTINCT r.card FROM Review r " +
             "WHERE r.user = :user AND r.card.deck.id = :deckId " +
-            "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
+            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
     List<Card> findDueCardsForDeck(
             @Param("user") User user,
             @Param("deckId") Long deckId,
@@ -93,11 +95,11 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     
     /**
      * Find cards that are due for review for a specific book.
-     * This leverages the relationship directly instead of requiring filtering in the service layer.
+     * Using PostgreSQL specific interval syntax.
      */
     @Query("SELECT DISTINCT r.card FROM Review r " +
             "WHERE r.user = :user AND r.card.book.id = :bookId " +
-            "AND DATEADD(DAY, r.interval, r.reviewDate) <= :currentDate")
+            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
     List<Card> findDueCardsForBook(
             @Param("user") User user,
             @Param("bookId") Long bookId,
