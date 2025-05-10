@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            width: 300px;
+        }
+        #log {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border: 1px solid #ccc;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .tabContent {
+            display: none;
+        }
+        .tabContent.active {
+            display: block;
+        }
+        .playerInfo {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        #roomPlayers {
+            margin-top: 10px;
+        }
+        #roomInfo {
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        #gamePanel {
+            background-color: #f9f9f9;
+            border: 2px solid #4CAF50;
+        }
+        #cardDisplay {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        #cardDisplay:hover {
+            transform: scale(1.02);
+        }
+        .optionBtn {
+            background-color: #008CBA;
+            padding: 12px;
+            font-size: 16px;
+        }
+        .optionBtn:hover {
+            background-color: #007B9A;
+        }
+        .optionBtn:disabled {
+            background-color: #cccccc;
+        }
+        #gameResults {
+            background-color: #f0f8ff;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <h1>Simple WebSocket Game Test</h1>
+    
+    <div class="panel">
+        <h2>1. Set Firebase UID</h2>
+        <input type="text" id="firebaseUid" placeholder="Enter any test Firebase UID (e.g., test123)" value="test123">
+        <button id="setUidBtn">Set UID</button>
+        <div id="playerInfo" class="playerInfo" style="display: none;">
+            Current player: <span id="playerUid"></span> (<span id="playerName"></span>)
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>2. Test Connection</h2>
+        <input type="text" id="backendUrl" placeholder="Backend URL" value="https://specific-backend.onrender.com">
+        <button id="testApiBtn">Test API</button>
+        <button id="connectWsBtn" disabled>Connect WebSocket</button>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="creator">Create Room</div>
+        <div class="tab" data-tab="joiner">Join Room</div>
+    </div>
+
+    <div class="panel tabContent active" id="creatorPanel">
+        <h2>3. Host a Game</h2>
+        <button id="createRoomBtn" disabled>Create Room</button>
+        <div id="roomInfo" style="display: none;"></div>
+        <div id="roomPlayers" style="display: none;">
+            <h3>Players in Room:</h3>
+            <ul id="playersList"></ul>
+        </div>
+        <button id="startGameBtn" disabled>Start Game</button>
+        <button id="leaveRoomBtn" disabled>Leave Room</button>
+    </div>
+
+    <div class="panel tabContent" id="joinerPanel">
+        <h2>3. Join a Game</h2>
+        <input type="text" id="roomCode" placeholder="Enter room code to join">
+        <button id="joinRoomBtn" disabled>Join Room</button>
+        <div id="joinedRoomInfo" style="display: none;"></div>
+        <div id="joinedRoomPlayers" style="display: none;">
+            <h3>Players in Room:</h3>
+            <ul id="joinedPlayersList"></ul>
+        </div>
+        <button id="leaveJoinedRoomBtn" disabled>Leave Room</button>
+    </div>
+
+    <div class="panel">
+        <h2>Log</h2>
+        <div id="log"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    
+    <script>
+        // Elements
+        const firebaseUidInput = document.getElementById('firebaseUid');
+        const setUidBtn = document.getElementById('setUidBtn');
+        const backendUrlInput = document.getElementById('backendUrl');
+        const testApiBtn = document.getElementById('testApiBtn');
+        const connectWsBtn = document.getElementById('connectWsBtn');
+        
+        const createRoomBtn = document.getElementById('createRoomBtn');
+        const roomCodeInput = document.getElementById('roomCode');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+        const leaveJoinedRoomBtn = document.getElementById('leaveJoinedRoomBtn');
+        
+        const logElement = document.getElementById('log');
+        const playerUidElement = document.getElementById('playerUid');
+        const playerNameElement = document.getElementById('playerName');
+        const playerInfoElement = document.getElementById('playerInfo');
+        
+        const roomInfoElement = document.getElementById('roomInfo');
+        const roomPlayersElement = document.getElementById('roomPlayers');
+        const playersListElement = document.getElementById('playersList');
+        
+        const joinedRoomInfoElement = document.getElementById('joinedRoomInfo');
+        const joinedRoomPlayersElement = document.getElementById('joinedRoomPlayers');
+        const joinedPlayersListElement = document.getElementById('joinedPlayersList');
+
+        // State
+        let firebaseUid = '';
+        let playerUsername = '';
+        let backendUrl = '';
+        let stompClient = null;
+        let currentRoomCode = null;
+        let isRoomCreator = false;
+        let roomPlayers = [];
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                // Remove active class from all tabs
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                // Add active class to clicked tab
+                this.classList.add('active');
+                
+                // Hide all tab contents
+                document.querySelectorAll('.tabContent').forEach(content => content.classList.remove('active'));
+                // Show the corresponding tab content
+                const tabId = this.getAttribute('data-tab');
+                if (tabId === 'creator') {
+                    document.getElementById('creatorPanel').classList.add('active');
+                } else if (tabId === 'joiner') {
+                    document.getElementById('joinerPanel').classList.add('active');
+                }
+            });
+        });
+
+        // Event listeners
+        setUidBtn.addEventListener('click', setFirebaseUid);
+        testApiBtn.addEventListener('click', testApiConnection);
+        connectWsBtn.addEventListener('click', connectWebSocket);
+        createRoomBtn.addEventListener('click', createRoom);
+        joinRoomBtn.addEventListener('click', joinRoom);
+        startGameBtn.addEventListener('click', startGame);
+        leaveRoomBtn.addEventListener('click', leaveCreatedRoom);
+        leaveJoinedRoomBtn.addEventListener('click', leaveJoinedRoom);
+
+        // Functions
+        function setFirebaseUid() {
+            firebaseUid = firebaseUidInput.value.trim();
+            if (firebaseUid) {
+                playerUsername = 'Player-' + firebaseUid.substring(0, 4);
+                
+                playerUidElement.textContent = firebaseUid;
+                playerNameElement.textContent = playerUsername;
+                playerInfoElement.style.display = 'block';
+                
+                logMessage('Firebase UID set: ' + firebaseUid, 'success');
+                connectWsBtn.disabled = false;
+            } else {
+                logMessage('Please enter a Firebase UID', 'error');
+            }
+        }
+
+        async function testApiConnection() {
+            backendUrl = backendUrlInput.value.trim();
+            if (!backendUrl) {
+                logMessage('Please enter the backend URL', 'error');
+                return;
+            }
+
+            logMessage('Testing API connection...', 'info');
+            
+            try {
+                const response = await fetch(`${backendUrl}/api/health-check`, {
+                    method: 'GET'
+                });
+                
+                if (response.ok) {
+                    logMessage('API connection successful!', 'success');
+                } else {
+                    logMessage(`API test failed: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                logMessage(`API connection error: ${error.message}`, 'error');
+                logMessage('Trying without /api prefix...', 'info');
+                
+                try {
+                    const response2 = await fetch(`${backendUrl}/health-check`, {
+                        method: 'GET'
+                    });
+                    
+                    if (response2.ok) {
+                        logMessage('API connection successful without /api prefix!', 'success');
+                        backendUrl = backendUrl.replace(/\/api$/, '');
+                    } else {
+                        logMessage(`Second API test failed: ${response2.status} ${response2.statusText}`, 'error');
+                    }
+                } catch (error2) {
+                    logMessage(`Second API connection error: ${error2.message}`, 'error');
+                }
+            }
+        }
+
+        function connectWebSocket() {
+            if (!firebaseUid) {
+                logMessage('Please set Firebase UID first', 'error');
+                return;
+            }
+
+            if (!backendUrl) {
+                backendUrl = backendUrlInput.value.trim();
+            }
+
+            const wsUrl = `${backendUrl}/ws-game`;
+            logMessage(`Connecting to WebSocket at ${wsUrl}...`, 'info');
+
+            try {
+                const socket = new SockJS(wsUrl);
+                stompClient = Stomp.over(socket);
+                
+                // Disable debug logging
+                stompClient.debug = null;
+                
+                stompClient.connect({}, frame => {
+                    logMessage('Connected to WebSocket!', 'success');
+                    
+                    // Subscribe to personal messages
+                    stompClient.subscribe('/user/queue/game', message => {
+                        const messageBody = JSON.parse(message.body);
+                        logMessage(`Received personal message: ${JSON.stringify(messageBody)}`, 'info');
+                        handleGameMessage(messageBody);
+                    });
+                    
+                    // Enable game buttons
+                    createRoomBtn.disabled = false;
+                    joinRoomBtn.disabled = false;
+                    
+                }, error => {
+                    logMessage(`WebSocket connection error: ${error}`, 'error');
+                });
+            } catch (error) {
+                logMessage(`Error creating WebSocket: ${error.message}`, 'error');
+            }
+        }
+
+        async function createRoom() {
+            if (!stompClient || !stompClient.connected) {
+                logMessage('Not connected to WebSocket', 'error');
+                return;
+            }
+
+            logMessage('Creating room...', 'info');
+            
+            try {
+                const apiUrl = `${backendUrl}/api/game/room?firebaseUid=${firebaseUid}`;
+                logMessage(`API request to: ${apiUrl}`, 'info');
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Firebase-Uid': firebaseUid
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const roomData = await response.json();
+                currentRoomCode = roomData.roomCode;
+                isRoomCreator = true;
+                
+                // Reset and update room players list
+                roomPlayers = [{
+                    id: firebaseUid,
+                    username: playerUsername, 
+                    isHost: true
+                }];
+                updatePlayersLists();
+                
+                // Update UI
+                roomInfoElement.textContent = `Room created! Code: ${currentRoomCode}`;
+                roomInfoElement.style.display = 'block';
+                roomPlayersElement.style.display = 'block';
+                
+                logMessage(`Room created! Code: ${currentRoomCode}`, 'success');
+                
+                // Subscribe to room topic
+                stompClient.subscribe(`/topic/game.room.${currentRoomCode}`, message => {
+                    const messageBody = JSON.parse(message.body);
+                    logMessage(`Received room message: ${JSON.stringify(messageBody)}`, 'info');
+                    handleGameMessage(messageBody);
+                });
+                
+                // Now send a message directly to the room topic to announce ourselves as creator
+                stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                    type: 'ROOM_CREATED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername
+                }));
+                
+                // Also send to the server-managed destination for proper handling
+                stompClient.send('/app/game.notify', {}, JSON.stringify({
+                    type: 'ROOM_CREATED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername
+                }));
+                
+                // Enable more buttons
+                startGameBtn.disabled = false;
+                leaveRoomBtn.disabled = false;
+                createRoomBtn.disabled = true;
+                
+            } catch (error) {
+                logMessage(`Error creating room: ${error.message}`, 'error');
+                
+                // Try again without /api prefix
+                try {
+                    const apiUrl = `${backendUrl}/game/room?firebaseUid=${firebaseUid}`;
+                    logMessage(`Retrying without /api prefix: ${apiUrl}`, 'info');
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Firebase-Uid': firebaseUid
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    
+                    const roomData = await response.json();
+                    currentRoomCode = roomData.roomCode;
+                    isRoomCreator = true;
+                    
+                    // Reset and update room players list
+                    roomPlayers = [{
+                        id: firebaseUid,
+                        username: playerUsername, 
+                        isHost: true
+                    }];
+                    updatePlayersLists();
+                    
+                    // Update UI
+                    roomInfoElement.textContent = `Room created! Code: ${currentRoomCode}`;
+                    roomInfoElement.style.display = 'block';
+                    roomPlayersElement.style.display = 'block';
+                    
+                    logMessage(`Room created! Code: ${currentRoomCode}`, 'success');
+                    
+                    // Subscribe to room topic
+                    stompClient.subscribe(`/topic/game.room.${currentRoomCode}`, message => {
+                        const messageBody = JSON.parse(message.body);
+                        logMessage(`Received room message: ${JSON.stringify(messageBody)}`, 'info');
+                        handleGameMessage(messageBody);
+                    });
+                    
+                    // Now send a message directly to the room topic to announce ourselves as creator
+                    stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                        type: 'ROOM_CREATED',
+                        roomCode: currentRoomCode,
+                        senderId: firebaseUid,
+                        senderUsername: playerUsername
+                    }));
+                    
+                    // Also send to the server-managed destination for proper handling
+                    stompClient.send('/app/game.notify', {}, JSON.stringify({
+                        type: 'ROOM_CREATED',
+                        roomCode: currentRoomCode,
+                        senderId: firebaseUid,
+                        senderUsername: playerUsername
+                    }));
+                    
+                    // Enable more buttons
+                    startGameBtn.disabled = false;
+                    leaveRoomBtn.disabled = false;
+                    createRoomBtn.disabled = true;
+                    
+                } catch (error2) {
+                    logMessage(`Second attempt failed: ${error2.message}`, 'error');
+                }
+            }
+        }
+
+        function joinRoom() {
+            if (!stompClient || !stompClient.connected) {
+                logMessage('Not connected to WebSocket', 'error');
+                return;
+            }
+
+            const roomCode = roomCodeInput.value.trim();
+            if (!roomCode) {
+                logMessage('Please enter a room code', 'error');
+                return;
+            }
+
+            currentRoomCode = roomCode;
+            isRoomCreator = false;
+            logMessage(`Joining room ${roomCode}...`, 'info');
+            
+            // Update UI
+            joinedRoomInfoElement.textContent = `Joining room: ${roomCode}`;
+            joinedRoomInfoElement.style.display = 'block';
+            joinedRoomPlayersElement.style.display = 'block';
+            
+            // Subscribe to room topic
+            stompClient.subscribe(`/topic/game.room.${roomCode}`, message => {
+                const messageBody = JSON.parse(message.body);
+                logMessage(`Received room message: ${JSON.stringify(messageBody)}`, 'info');
+                handleGameMessage(messageBody);
+            });
+            
+            // Add self to players list
+            roomPlayers = [{
+                id: firebaseUid,
+                username: playerUsername,
+                isHost: false
+            }];
+            updatePlayersLists();
+            
+            // Send join message
+            stompClient.send('/app/game.join', {}, JSON.stringify({
+                type: 'ROOM_JOINED',
+                roomCode: roomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Also send a message directly to the room topic to ensure others see us
+            stompClient.send(`/topic/game.room.${roomCode}`, {}, JSON.stringify({
+                type: 'ROOM_JOINED',
+                roomCode: roomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Enable buttons
+            leaveJoinedRoomBtn.disabled = false;
+            joinRoomBtn.disabled = true;
+        }
+
+        function startGame() {
+            if (!stompClient || !stompClient.connected) {
+                logMessage('Not connected to WebSocket', 'error');
+                return;
+            }
+
+            if (!currentRoomCode) {
+                logMessage('No room joined or created', 'error');
+                return;
+            }
+
+            if (!isRoomCreator) {
+                logMessage('Only the room creator can start the game', 'error');
+                return;
+            }
+
+            if (roomPlayers.length < 2) {
+                logMessage('Need at least 2 players to start the game', 'error');
+                return;
+            }
+
+            logMessage(`Starting game in room ${currentRoomCode}...`, 'info');
+            
+            // Send start game message
+            stompClient.send('/app/game.start', {}, JSON.stringify({
+                type: 'GAME_STARTED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Also send directly to room topic to ensure everyone gets the message
+            stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                type: 'GAME_STARTED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Simulate game start with cards after a delay
+            setTimeout(() => {
+                simulateGameRounds();
+            }, 1500);
+        }
+        
+        // Function to simulate game rounds with cards
+        function simulateGameRounds() {
+            if (!currentRoomCode || !stompClient || !stompClient.connected) return;
+            
+            const sampleCards = [
+                { front: "안녕하세요", back: "Hello", options: ["Goodbye", "Thank you", "Hello", "Good night"] },
+                { front: "감사합니다", back: "Thank you", options: ["Thank you", "Sorry", "Welcome", "Yes"] },
+                { front: "잘 가요", back: "Goodbye", options: ["Welcome", "Goodbye", "Hello", "No"] },
+                { front: "좋은 아침", back: "Good morning", options: ["Good night", "Good evening", "Good morning", "Hello"] }
+            ];
+            
+            // Simulate first round
+            simulateRound(1, sampleCards[0]);
+            
+            // Simulate subsequent rounds with delays
+            setTimeout(() => simulateRound(2, sampleCards[1]), 5000);
+            setTimeout(() => simulateRound(3, sampleCards[2]), 10000);
+            setTimeout(() => simulateRound(4, sampleCards[3]), 15000);
+            setTimeout(() => simulateGameOver(), 20000);
+        }
+        
+        function simulateRound(roundNumber, card) {
+            // Send round information to all players
+            stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                type: 'NEXT_ROUND',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                roundNumber: roundNumber,
+                currentCard: card
+            }));
+            
+            // Simulate other player answering after a delay
+            setTimeout(() => {
+                // Only simulate if not the room creator (avoid duplicate answers)
+                if (!isRoomCreator) {
+                    const correctOptionIndex = card.options.indexOf(card.back);
+                    stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                        type: 'ANSWER_SUBMITTED',
+                        roomCode: currentRoomCode,
+                        senderId: 'simulated-player',
+                        senderUsername: 'Simulated Player',
+                        content: correctOptionIndex >= 0 ? correctOptionIndex : 0
+                    }));
+                }
+            }, 2000);
+        }
+        
+        function simulateGameOver() {
+            stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                type: 'GAME_OVER',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                gameResult: {
+                    winnerUsername: playerUsername,
+                    scores: [
+                        { playerId: firebaseUid, username: playerUsername, score: 3 },
+                        { playerId: 'simulated-player', username: 'Simulated Player', score: 1 }
+                    ]
+                }
+            }));
+        }
+
+        function leaveCreatedRoom() {
+            leaveRoom(true);
+        }
+
+        function leaveJoinedRoom() {
+            leaveRoom(false);
+        }
+
+        function leaveRoom(isCreator) {
+            if (!stompClient || !stompClient.connected) {
+                logMessage('Not connected to WebSocket', 'error');
+                return;
+            }
+
+            if (!currentRoomCode) {
+                logMessage('No room joined or created', 'error');
+                return;
+            }
+
+            logMessage(`Leaving room ${currentRoomCode}...`, 'info');
+            
+            // Send leave room message
+            stompClient.send('/app/game.leave', {}, JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Also send directly to room topic to ensure everyone gets the message
+            stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Reset state
+            currentRoomCode = null;
+            roomPlayers = [];
+            
+            // Reset UI based on which interface was used
+            if (isCreator) {
+                roomInfoElement.style.display = 'none';
+                roomPlayersElement.style.display = 'none';
+                startGameBtn.disabled = true;
+                leaveRoomBtn.disabled = true;
+                createRoomBtn.disabled = false;
+            } else {
+                joinedRoomInfoElement.style.display = 'none';
+                joinedRoomPlayersElement.style.display = 'none';
+                leaveJoinedRoomBtn.disabled = true;
+                joinRoomBtn.disabled = false;
+            }
+            
+            updatePlayersLists();
+        }
+
+        function handleGameMessage(message) {
+            switch (message.type) {
+                case 'ROOM_JOINED':
+                case 'ROOM_CREATED':
+                    // Add player to the list if not already there and not ourselves
+                    if (!roomPlayers.some(p => p.id === message.senderId)) {
+                        // Remove the check that prevented adding ourselves
+                        // We want to ensure each client has a complete and consistent view of all players
+                        roomPlayers.push({
+                            id: message.senderId,
+                            username: message.senderUsername,
+                            isHost: message.type === 'ROOM_CREATED'
+                        });
+                        updatePlayersLists();
+                        
+                        // Don't log "joined" message for ourselves
+                        if (message.senderId !== firebaseUid) {
+                            logMessage(`${message.senderUsername} ${message.type === 'ROOM_CREATED' ? 'created the room' : 'joined the room'}`, 'success');
+                        }
+                    }
+                    break;
+                    
+                case 'GAME_STARTED':
+                    logMessage('Game started!', 'success');
+                    // Add game container if not exists
+                    showGameInterface();
+                    break;
+                    
+                case 'NEXT_ROUND':
+                    logMessage(`Round ${message.roundNumber}: Card: ${message.currentCard.front}`, 'info');
+                    // Display the card and options
+                    showCardAndOptions(message.roundNumber, message.currentCard);
+                    break;
+                    
+                case 'ANSWER_SUBMITTED':
+                    logMessage(`${message.senderUsername} submitted answer option ${message.content}`, 'info');
+                    break;
+                    
+                case 'GAME_OVER':
+                    logMessage(`Game over! Winner: ${message.gameResult.winnerUsername}`, 'success');
+                    showGameResults(message.gameResult);
+                    break;
+                    
+                case 'LEAVE_ROOM':
+                    // Remove player from list
+                    const playerIndex = roomPlayers.findIndex(p => p.id === message.senderId);
+                    if (playerIndex !== -1) {
+                        roomPlayers.splice(playerIndex, 1);
+                        updatePlayersLists();
+                    }
+                    logMessage(`${message.senderUsername} left the room`, 'info');
+                    break;
+                    
+                case 'ERROR':
+                    logMessage(`Error: ${message.content}`, 'error');
+                    break;
+                    
+                default:
+                    logMessage(`Unknown message type: ${message.type}`, 'info');
+            }
+        }
+
+        function updatePlayersLists() {
+            // Clear current lists
+            playersListElement.innerHTML = '';
+            joinedPlayersListElement.innerHTML = '';
+            
+            // Add players to both lists (creator and joiner views)
+            roomPlayers.forEach(player => {
+                const listItem = document.createElement('li');
+                listItem.textContent = player.username + (player.isHost ? ' (Host)' : '');
+                
+                const joinedListItem = document.createElement('li');
+                joinedListItem.textContent = player.username + (player.isHost ? ' (Host)' : '');
+                
+                playersListElement.appendChild(listItem);
+                joinedPlayersListElement.appendChild(joinedListItem);
+            });
+            
+            // Update start button state - only enable if at least 2 players and user is creator
+            if (isRoomCreator) {
+                startGameBtn.disabled = roomPlayers.length < 2;
+            }
+        }
+
+        function logMessage(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        // Functions to display game UI
+        function showGameInterface() {
+            // Create game panel if not exists
+            let gamePanel = document.getElementById('gamePanel');
+            if (!gamePanel) {
+                gamePanel = document.createElement('div');
+                gamePanel.id = 'gamePanel';
+                gamePanel.className = 'panel';
+                gamePanel.innerHTML = `
+                    <h2>Game in Progress</h2>
+                    <div id="roundInfo"></div>
+                    <div id="cardDisplay" style="margin: 20px 0; padding: 20px; background-color: #f0f0f0; border-radius: 5px; text-align: center; font-size: 24px;"></div>
+                    <div id="options" style="display: flex; flex-direction: column; gap: 10px;"></div>
+                    <div id="gameResults" style="margin-top: 20px; display: none;"></div>
+                `;
+                
+                // Insert after the joiner panel
+                const joinerPanel = document.getElementById('joinerPanel');
+                joinerPanel.parentNode.insertBefore(gamePanel, joinerPanel.nextSibling);
+            } else {
+                // Reset game panel if it already exists
+                document.getElementById('roundInfo').innerHTML = '';
+                document.getElementById('cardDisplay').innerHTML = '';
+                document.getElementById('options').innerHTML = '';
+                document.getElementById('gameResults').style.display = 'none';
+            }
+        }
+        
+        function showCardAndOptions(roundNumber, card) {
+            const roundInfo = document.getElementById('roundInfo');
+            const cardDisplay = document.getElementById('cardDisplay');
+            const optionsContainer = document.getElementById('options');
+            
+            // Update round info
+            roundInfo.innerHTML = `<h3>Round ${roundNumber}</h3>`;
+            
+            // Display card
+            cardDisplay.textContent = card.front;
+            
+            // Clear previous options
+            optionsContainer.innerHTML = '';
+            
+            // Add options as buttons
+            card.options.forEach((option, index) => {
+                const optionBtn = document.createElement('button');
+                optionBtn.textContent = option;
+                optionBtn.className = 'optionBtn';
+                optionBtn.onclick = () => submitAnswer(index);
+                optionsContainer.appendChild(optionBtn);
+            });
+        }
+        
+        function submitAnswer(optionIndex) {
+            if (!stompClient || !stompClient.connected || !currentRoomCode) return;
+            
+            stompClient.send(`/topic/game.room.${currentRoomCode}`, {}, JSON.stringify({
+                type: 'ANSWER_SUBMITTED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                content: optionIndex
+            }));
+            
+            // Disable all option buttons after submitting
+            document.querySelectorAll('.optionBtn').forEach(btn => {
+                btn.disabled = true;
+            });
+            
+            logMessage(`You selected option ${optionIndex}`, 'info');
+        }
+        
+        function showGameResults(gameResult) {
+            const resultsContainer = document.getElementById('gameResults');
+            resultsContainer.style.display = 'block';
+            
+            // Create results HTML
+            let resultsHTML = `
+                <h3>Game Results</h3>
+                <p class="success">Winner: ${gameResult.winnerUsername}</p>
+                <h4>Scores:</h4>
+                <ul>
+            `;
+            
+            // Add scores for each player
+            gameResult.scores.forEach(playerScore => {
+                resultsHTML += `<li>${playerScore.username}: ${playerScore.score} points</li>`;
+            });
+            
+            resultsHTML += '</ul>';
+            resultsContainer.innerHTML = resultsHTML;
+        }
+    </script>
+</body>
+</html> 

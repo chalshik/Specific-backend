@@ -126,8 +126,8 @@
     
     <script>
         // Configuration
-        const API_BASE_URL = 'https://specific-backend.onrender.com';
-        const WS_ENDPOINT = API_BASE_URL + '/ws-game';
+        const API_BASE_URL = 'https://specific-backend.onrender.com/api'; // Direct connection to backend
+        const WS_ENDPOINT = 'https://specific-backend.onrender.com/ws-game'; // Direct WebSocket connection
         
         // State variables
         let firebaseUid = '';
@@ -202,13 +202,33 @@
         // Create Room
         async function createRoom() {
             try {
-                const response = await fetch(`${API_BASE_URL}/api/game/room?firebaseUid=${firebaseUid}`, {
+                // Show loading state
+                showMessage(createRoomStatus, 'Creating room...', 'success');
+                
+                // Option 1: Direct connection (may have CORS issues)
+                let response = await fetch(`${API_BASE_URL}/game/room?firebaseUid=${firebaseUid}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Firebase-Uid': firebaseUid
                     }
+                }).catch(e => {
+                    logToGameConsole("Direct connection failed: " + e.message);
+                    return null;
                 });
+
+                // If direct connection fails, try with CORS proxy
+                if (!response) {
+                    const corsProxyUrl = 'https://cors-anywhere.herokuapp.com/';
+                    logToGameConsole("Trying with CORS proxy...");
+                    response = await fetch(corsProxyUrl + API_BASE_URL + '/game/room?firebaseUid=' + firebaseUid, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Firebase-Uid': firebaseUid
+                        }
+                    });
+                }
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! Status: ${response.status}`);

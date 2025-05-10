@@ -1,29 +1,27 @@
-const http = require('http');
-const fs = require('fs');
+const express = require('express');
 const path = require('path');
+const cors = require('cors');
 
+const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Create a simple HTTP server
-const server = http.createServer((req, res) => {
-    // Serve the HTML file
-    if (req.url === '/' || req.url === '/index.html') {
-        fs.readFile(path.join(__dirname, 'game-room-test.html'), (err, content) => {
-            if (err) {
-                res.writeHead(500);
-                res.end(`Error loading file: ${err.message}`);
-                return;
-            }
-            
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(content);
-        });
-    } else {
-        res.writeHead(404);
-        res.end('Not found');
-    }
+// Enable CORS for all routes
+app.use(cors());
+
+// Serve static files from the current directory
+app.use(express.static(path.join(__dirname, './')));
+
+// Serve simple-test.html by default
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'simple-test.html'));
 });
 
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Original game-room-test.html still available at this endpoint
+app.get('/original', (req, res) => {
+  res.sendFile(path.join(__dirname, 'game-room-test.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Open http://localhost:${PORT} in your browser for testing`);
 }); 

@@ -1,0 +1,28 @@
+{
+  "name": "specific_spring",
+  "version": "1.0.0",
+  "description": "A Spring Boot application for language learning with spaced repetition.",
+  "main": "proxy.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "proxy": "node proxy.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chalshik/Specific-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/chalshik/Specific-backend/issues"
+  },
+  "homepage": "https://github.com/chalshik/Specific-backend#readme",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "http-proxy": "^1.18.1",
+    "http-proxy-middleware": "^3.0.5"
+  }
+}

@@ -151,3 +151,104 @@ To test the multiplayer functionality, you can:
 - If you encounter connection issues, check that the Specific backend is running and accessible.
 - Make sure you're using valid Firebase UIDs for authentication.
 - Check the Game Log for error messages and debugging information.
+
+# WebSocket Game Testing Guide
+
+This repository contains a test application for the WebSocket-based multiplayer game functionality of the Specific language learning app.
+
+## Setup
+
+1. Install the required packages:
+   ```
+   npm init -y && npm install express http-proxy-middleware cors http-proxy
+   ```
+
+2. Verify that `package.json` has the necessary scripts:
+   ```json
+   "scripts": {
+     "start": "node server.js",
+     "proxy": "node proxy.js"
+   }
+   ```
+
+## Testing Options
+
+You have three options to test the WebSocket game functionality:
+
+### Option 1: Direct Connection (Recommended)
+
+1. Start the basic web server:
+   ```
+   npm start
+   ```
+
+2. Open your browser to http://localhost:3000
+   
+3. The game-room-test.html will connect directly to the backend at https://specific-backend.onrender.com
+
+4. If you experience CORS issues, the app will automatically attempt to use a CORS proxy.
+
+### Option 2: Use a Temporary CORS Proxy
+
+1. Visit https://cors-anywhere.herokuapp.com/ and request temporary access
+   
+2. After getting access, our test app will automatically use it as fallback if direct connection fails
+
+### Option 3: Use Local Proxy (Advanced)
+
+If the above options don't work, you can try with the local proxy:
+
+1. Start the proxy server:
+   ```
+   npm run proxy
+   ```
+
+2. Edit game-room-test.html to use local proxy endpoints:
+   ```javascript
+   const API_BASE_URL = '/api'; 
+   const WS_ENDPOINT = '/ws-game';
+   ```
+
+## How to Test the Game
+
+1. Enter a Firebase UID (e.g., "test-user-123") and click "Set Firebase UID"
+   
+2. Click "Create Room" to create a new game room
+   
+3. You'll see a room code displayed
+   
+4. To test multiplayer, open another browser window to http://localhost:3000
+   
+5. Enter a different Firebase UID (e.g., "test-user-456") and click "Set Firebase UID"
+   
+6. Enter the room code from the first window and click "Join Room"
+   
+7. In the host window, click "Start Game" to begin
+
+8. Watch the Game Log in both windows to see the WebSocket messages
+
+## Troubleshooting
+
+- If you see CORS errors in the browser console, try using Option 2 or 3
+  
+- If WebSocket connection fails, check the backend status at https://specific-backend.onrender.com
+  
+- Ensure your backend has proper CORS configuration in both WebConfig.java and WebSocketConfig.java
+
+## Backend CORS Configuration
+
+The backend should have these configurations:
+
+```java
+// WebConfig.java
+registry.addMapping("/**")
+        .allowedOrigins("http://localhost:3000", "https://specific-front.onrender.com")
+        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        .allowedHeaders("*")
+        .allowCredentials(true);
+
+// WebSocketConfig.java
+registry.addEndpoint("/ws-game")
+        .setAllowedOrigins("http://localhost:3000", "https://specific-front.onrender.com")
+        .withSockJS();
+```
