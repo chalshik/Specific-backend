@@ -246,7 +246,7 @@ public class ReviewService {
      * @return List of due reviews
      */
     public List<Review> findDueReviewsByDeck(Long deckId, User user) {
-        return reviewRepo.findDueReviewsByDeckId(user, deckId, LocalDateTime.now());
+        return reviewRepo.findDueReviewsByDeckId(user.getId(), deckId, LocalDateTime.now());
     }
     
     /**
@@ -268,7 +268,7 @@ public class ReviewService {
      * @return List of due reviews
      */
     public List<Review> findDueReviewsByBook(Long bookId, User user) {
-        return reviewRepo.findDueReviewsByBookId(bookId, user, LocalDateTime.now());
+        return reviewRepo.findDueReviewsByBookId(bookId, user.getId(), LocalDateTime.now());
     }
     
     /**
@@ -290,17 +290,12 @@ public class ReviewService {
      * @return List of reviews for the card
      */
     public List<Review> findReviewsByCard(Long cardId, User user) {
-        // Find the card
-        Card card = cardRepo.findById(cardId)
-                .orElseThrow(() -> new CardNotFoundException("Card with ID " + cardId + " not found"));
-        
-        // Get all reviews for this card-user pair, not just the latest one
+        Card card = cardService.getCardById(cardId, user);
         return reviewRepo.findByCardAndUserOrderByReviewDateDesc(card, user);
     }
     
     /**
-     * Find cards that are due for review in a specific deck
-     * This optimized method directly returns the cards without filtering
+     * Find cards that are due for review for a specific deck
      * 
      * @param deckId Deck ID
      * @return List of due cards
@@ -311,20 +306,18 @@ public class ReviewService {
     }
     
     /**
-     * Find cards that are due for review in a specific deck for a specific user
-     * This optimized method directly returns the cards without filtering
+     * Find cards that are due for review for a specific deck for a specific user
      * 
      * @param deckId Deck ID
-     * @param user The user who owns the cards
+     * @param user The user who owns the reviews
      * @return List of due cards
      */
     public List<Card> findDueCardsForDeck(Long deckId, User user) {
-        return reviewRepo.findDueCardsForDeck(user, deckId, LocalDateTime.now());
+        return reviewRepo.findDueCardsForDeck(user.getId(), deckId, LocalDateTime.now());
     }
     
     /**
-     * Find cards that are due for review in a specific book
-     * This optimized method directly returns the cards without filtering
+     * Find cards that are due for review for a specific book
      * 
      * @param bookId Book ID
      * @return List of due cards
@@ -335,22 +328,21 @@ public class ReviewService {
     }
     
     /**
-     * Find cards that are due for review in a specific book for a specific user
-     * This optimized method directly returns the cards without filtering
+     * Find cards that are due for review for a specific book for a specific user
      * 
      * @param bookId Book ID
-     * @param user The user who owns the cards
+     * @param user The user who owns the reviews
      * @return List of due cards
      */
     public List<Card> findDueCardsForBook(Long bookId, User user) {
-        return reviewRepo.findDueCardsForBook(user, bookId, LocalDateTime.now());
+        return reviewRepo.findDueCardsForBook(user.getId(), bookId, LocalDateTime.now());
     }
     
     /**
      * Find all reviews for cards from a specific book
      * 
      * @param bookId Book ID
-     * @return List of reviews
+     * @return List of reviews for cards in the book
      */
     public List<Review> findReviewsByBook(Long bookId) {
         User currentUser = securityUtils.getCurrentUser();
@@ -362,10 +354,10 @@ public class ReviewService {
      * 
      * @param bookId Book ID
      * @param user The user who owns the reviews
-     * @return List of reviews
+     * @return List of reviews for cards in the book
      */
     public List<Review> findReviewsByBook(Long bookId, User user) {
-        return reviewRepo.findReviewsByBookId(bookId, user);
+        return reviewRepo.findReviewsByBookId(bookId, user.getId());
     }
 
     /**
@@ -378,71 +370,51 @@ public class ReviewService {
         User currentUser = securityUtils.getCurrentUser();
         return getDeckReviewStatistics(deckId, currentUser);
     }
-    
+
     /**
-     * Get review statistics for a specific deck for a specific user
+     * Get deck review statistics for a specific user
      * 
      * @param deckId Deck ID
      * @param user The user who owns the reviews
-     * @return Map containing statistics about the deck's reviews
+     * @return Map with statistics
      */
     public Map<String, Object> getDeckReviewStatistics(Long deckId, User user) {
         LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> stats = new HashMap<>();
         
-        // Get all reviews for this deck's cards
-        List<Review> allReviews = reviewRepo.findDueReviewsByDeckId(user, deckId, now);
+        try {
+            // Get all reviews for this deck's cards
+            List<Review> allReviews = reviewRepo.findDueReviewsByDeckId(user.getId(), deckId, now);
+            
+            // Get cards due for review
+            List<Card> dueCards = reviewRepo.findDueCardsForDeck(user.getId(), deckId, now);
+            
+            // Calculate statistics
+            int totalReviews = allReviews.size();
+            int cardsToReview = dueCards.size();
+            
+            double avgEaseFactor = allReviews.stream()
+                    .mapToDouble(Review::getEaseFactor)
+                    .average()
+                    .orElse(0);
+            
+            double avgInterval = allReviews.stream()
+                    .mapToDouble(Review::getInterval)
+                    .average()
+                    .orElse(0);
+            
+            // Populate the response
+            stats.put("totalReviews", totalReviews);
+            stats.put("cardsToReview", cardsToReview);
+            stats.put("avgEaseFactor", Math.round(avgEaseFactor * 100.0) / 100.0);
+            stats.put("avgInterval", Math.round(avgInterval * 10.0) / 10.0);
+            stats.put("deckId", deckId);
+            
+        } catch (Exception e) {
+            logger.error("Error getting deck statistics: {}", e.getMessage(), e);
+            stats.put("error", "Failed to retrieve statistics: " + e.getMessage());
+        }
         
-        // Get cards due for review
-        List<Card> dueCards = findDueCardsForDeck(deckId, user);
-        
-        // Get all cards in the deck (via service to enforce access control)
-        List<Card> allCards = cardService.getCardsByDeck(deckId, user);
-        
-        // Calculate statistics
-        int totalCards = allCards.size();
-        int dueCardsCount = dueCards.size();
-        int reviewedCardsCount = totalCards - dueCardsCount;
-        
-        // Count reviews by result
-        long againCount = allReviews.stream()
-            .filter(r -> r.getLastResult() == Review.Rating.AGAIN)
-            .count();
-        
-        long hardCount = allReviews.stream()
-            .filter(r -> r.getLastResult() == Review.Rating.HARD)
-            .count();
-        
-        long goodCount = allReviews.stream()
-            .filter(r -> r.getLastResult() == Review.Rating.GOOD)
-            .count();
-        
-        long easyCount = allReviews.stream()
-            .filter(r -> r.getLastResult() == Review.Rating.EASY)
-            .count();
-        
-        // Calculate performance metrics
-        double totalReviews = againCount + hardCount + goodCount + easyCount;
-        double successRate = totalReviews > 0 ? 
-                ((goodCount + easyCount) / totalReviews) * 100.0 : 0.0;
-        
-        // Calculate average interval
-        double avgInterval = allReviews.stream()
-            .mapToInt(Review::getInterval)
-            .average()
-            .orElse(0.0);
-        
-        // Compile all statistics
-        Map<String, Object> statistics = new HashMap<>();
-        statistics.put("totalCards", totalCards);
-        statistics.put("dueCards", dueCardsCount);
-        statistics.put("reviewedCards", reviewedCardsCount);
-        statistics.put("againCount", againCount);
-        statistics.put("hardCount", hardCount);
-        statistics.put("goodCount", goodCount);
-        statistics.put("easyCount", easyCount);
-        statistics.put("successRate", successRate);
-        statistics.put("averageInterval", avgInterval);
-        
-        return statistics;
+        return stats;
     }
 }

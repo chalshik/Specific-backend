@@ -36,14 +36,16 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     );
 
     /**
-     * Find reviews that are due for a specific user and deck.
-     * Using PostgreSQL specific interval syntax.
+     * Using a native query approach for finding due reviews by deck.
+     * This avoids database-specific date arithmetic functions.
      */
-    @Query("SELECT r FROM Review r JOIN r.card c " +
-            "WHERE r.user = :user AND c.deck.id = :deckId " +
-            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
+    @Query(nativeQuery = true, 
+           value = "SELECT r.* FROM review r " +
+                  "JOIN card c ON r.card_id = c.id " +
+                  "WHERE r.user_id = :userId AND c.deck_id = :deckId " +
+                  "AND r.review_date + INTERVAL '1 day' * r.interval <= :currentDate")
     List<Review> findDueReviewsByDeckId(
-            @Param("user") User user,
+            @Param("userId") Long userId,
             @Param("deckId") Long deckId,
             @Param("currentDate") LocalDateTime currentDate
     );
@@ -51,9 +53,9 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     /**
      * Find reviews for cards that have high intervals (well-learned).
      */
-    @Query("SELECT r FROM Review r WHERE r.user = :user AND r.interval >= :minInterval")
+    @Query("SELECT r FROM Review r WHERE r.user.id = :userId AND r.interval >= :minInterval")
     List<Review> findFinishedReviewsByUser(
-            @Param("user") User user,
+            @Param("userId") Long userId,
             @Param("minInterval") Integer minInterval
     );
     
@@ -61,47 +63,53 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
      * Find all reviews for cards from a specific book.
      */
     @Query("SELECT r FROM Review r JOIN r.card c " +
-            "WHERE c.book.id = :bookId AND r.user = :user")
+            "WHERE c.book.id = :bookId AND r.user.id = :userId")
     List<Review> findReviewsByBookId(
             @Param("bookId") Long bookId,
-            @Param("user") User user
+            @Param("userId") Long userId
     );
     
     /**
-     * Find due reviews for cards from a specific book.
-     * Using PostgreSQL specific interval syntax.
+     * Using a native query approach for finding due reviews by book.
+     * This avoids database-specific date arithmetic functions.
      */
-    @Query("SELECT r FROM Review r JOIN r.card c " +
-            "WHERE c.book.id = :bookId AND r.user = :user " +
-            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
+    @Query(nativeQuery = true, 
+           value = "SELECT r.* FROM review r " +
+                  "JOIN card c ON r.card_id = c.id " +
+                  "WHERE c.book_id = :bookId AND r.user_id = :userId " +
+                  "AND r.review_date + INTERVAL '1 day' * r.interval <= :currentDate")
     List<Review> findDueReviewsByBookId(
             @Param("bookId") Long bookId,
-            @Param("user") User user,
+            @Param("userId") Long userId,
             @Param("currentDate") LocalDateTime currentDate
     );
 
     /**
-     * Find cards that are due for review for a specific deck.
-     * Using PostgreSQL specific interval syntax.
+     * Using a native query approach for finding due cards by deck.
+     * This avoids database-specific date arithmetic functions.
      */
-    @Query("SELECT DISTINCT r.card FROM Review r " +
-            "WHERE r.user = :user AND r.card.deck.id = :deckId " +
-            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
+    @Query(nativeQuery = true, 
+           value = "SELECT DISTINCT c.* FROM card c " +
+                  "JOIN review r ON c.id = r.card_id " +
+                  "WHERE r.user_id = :userId AND c.deck_id = :deckId " +
+                  "AND r.review_date + INTERVAL '1 day' * r.interval <= :currentDate")
     List<Card> findDueCardsForDeck(
-            @Param("user") User user,
+            @Param("userId") Long userId,
             @Param("deckId") Long deckId,
             @Param("currentDate") LocalDateTime currentDate
     );
     
     /**
-     * Find cards that are due for review for a specific book.
-     * Using PostgreSQL specific interval syntax.
+     * Using a native query approach for finding due cards by book.
+     * This avoids database-specific date arithmetic functions.
      */
-    @Query("SELECT DISTINCT r.card FROM Review r " +
-            "WHERE r.user = :user AND r.card.book.id = :bookId " +
-            "AND (r.reviewDate + cast(r.interval || ' days' as interval)) <= :currentDate")
+    @Query(nativeQuery = true, 
+           value = "SELECT DISTINCT c.* FROM card c " +
+                  "JOIN review r ON c.id = r.card_id " +
+                  "WHERE r.user_id = :userId AND c.book_id = :bookId " +
+                  "AND r.review_date + INTERVAL '1 day' * r.interval <= :currentDate")
     List<Card> findDueCardsForBook(
-            @Param("user") User user,
+            @Param("userId") Long userId,
             @Param("bookId") Long bookId,
             @Param("currentDate") LocalDateTime currentDate
     );
