@@ -12,7 +12,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic");
+        config.enableSimpleBroker("/topic", "/queue");
         
         // Set prefix for messages from clients to application
         config.setApplicationDestinationPrefixes("/app");
@@ -20,9 +20,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Register the "/ws-game" endpoint, enabling SockJS fallback options
+        // Register the "/ws-game" endpoint with specific allowed origins
         registry.addEndpoint("/ws-game")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOrigins("http://localhost:3000", "https://specific-front.onrender.com")
                 .withSockJS();
     }
 } 
