@@ -215,12 +215,24 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Add socket event listeners for better error handling
-            socket.onclose = function() {
-                logMessage('SockJS connection closed', 'warning');
+            socket.onclose = function(event) {
+                logMessage(`SockJS connection closed with code: ${event.code}`, 'warning');
+                
+                // Check for CORS errors (typical codes: 1006, 1002)
+                if (event.code === 1006 || event.code === 1002) {
+                    logMessage('Possible CORS or network connectivity issue detected', 'error');
+                    logMessage('Check that server allows connections from this origin', 'info');
+                }
             };
             
             socket.onerror = function(error) {
                 logMessage(`SockJS transport error: ${error}`, 'error');
+                
+                // Check if error is a SecurityError (CORS related)
+                if (error instanceof Event && error.type === 'error') {
+                    // This could be a CORS error
+                    logMessage('Possible CORS issue: Check server CORS configuration', 'error');
+                }
             };
             
             // Connect to WebSocket with timeout
@@ -229,11 +241,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 handleConnectionFailure();
             }, 10000); // 10 second timeout
             
-            // Connect to WebSocket
+            // Connect to WebSocket with authentication headers
             stompClient.connect(
                 {
                     username: playerUsername,
-                    firebaseUid: firebaseUid
+                    firebaseUid: firebaseUid,
+                    'X-Firebase-Uid': firebaseUid // Add header in both formats
                 },
                 function() {
                     clearTimeout(connectTimeout);
@@ -242,7 +255,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 function(error) {
                     clearTimeout(connectTimeout);
-                    logMessage(`STOMP error: ${error}`, 'error');
+                    
+                    // Provide more detailed error messages
+                    if (typeof error === 'string') {
+                        if (error.includes('Whoops! Lost connection')) {
+                            logMessage('Lost connection to server', 'error');
+                        } else if (error.includes('Cross-Origin')) {
+                            logMessage('CORS error detected: Server is rejecting cross-origin requests', 'error');
+                        } else {
+                            logMessage(`STOMP error: ${error}`, 'error');
+                        }
+                    } else {
+                        logMessage(`STOMP error: ${error}`, 'error');
+                    }
+                    
                     handleConnectionFailure();
                 }
             );
@@ -395,8 +421,16 @@ document.addEventListener('DOMContentLoaded', function() {
             onMessageReceived
         );
         
-        // Send join message
+        // Send join message to server endpoint with the correct message type 'JOIN_ROOM'
         stompClient.send(CONFIG.SOCKET.ENDPOINTS.JOIN, {}, JSON.stringify({
+            type: 'JOIN_ROOM',
+            roomCode: roomCode,
+            senderId: firebaseUid,
+            senderUsername: playerUsername
+        }));
+        
+        // Also send a direct message to the room topic to ensure visibility (fallback)
+        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {}, JSON.stringify({
             type: 'ROOM_JOINED',
             roomCode: roomCode,
             senderId: firebaseUid,
@@ -406,6 +440,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Store room information
         currentRoomCode = roomCode;
         isHost = false;
+        
+        // Add additional debug logging
+        logMessage(`Subscribed to room topic: ${CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode}`, 'info');
+        logMessage(`Joining as user: ${playerUsername} (${firebaseUid})`, 'info');
     }
 
     // Start the game
@@ -417,13 +455,23 @@ document.addEventListener('DOMContentLoaded', function() {
         
         logMessage('Starting game...', 'info');
         
-        // Send start game message
+        // Send start game message to server endpoint with the correct message type
         stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, {}, JSON.stringify({
+            type: 'START_GAME',
+            roomCode: currentRoomCode,
+            senderId: firebaseUid,
+            senderUsername: playerUsername
+        }));
+        
+        // Also send a direct message to the room topic (fallback)
+        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
             type: 'GAME_STARTED',
             roomCode: currentRoomCode,
             senderId: firebaseUid,
             senderUsername: playerUsername
         }));
+        
+        logMessage(`Sent START_GAME message to room: ${currentRoomCode}`, 'info');
     }
 
     // Submit an answer
