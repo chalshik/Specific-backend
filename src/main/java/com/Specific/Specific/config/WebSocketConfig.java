@@ -22,8 +22,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // Register the "/ws-game" endpoint with specific allowed origins
         registry.addEndpoint("/ws-game")
-                .setAllowedOrigins("http://localhost:3000", "https://specific-front.onrender.com", 
-                                   "file://", "null", "*")
+                .setAllowedOriginPatterns("*") // Use patterns instead of specific origins
                 .withSockJS();
     }
 } 

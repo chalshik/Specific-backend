@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Specific Card Game</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container-fluid game-container">
+        <!-- Login Section -->
+        <section id="loginSection" class="game-section active">
+            <div class="card shadow">
+                <div class="card-body text-center">
+                    <h1 class="mb-4">Specific Card Game</h1>
+                    <div class="mb-4">
+                        <input type="text" id="firebaseUid" class="form-control mb-3" placeholder="Enter your Firebase UID (e.g., test123)" value="test123">
+                        <button id="loginBtn" class="btn btn-primary btn-lg">
+                            <i class="fas fa-sign-in-alt me-2"></i>Login
+                        </button>
+                    </div>
+                    <div id="playerInfo" class="alert alert-info" style="display: none;">
+                        <strong>Logged in as:</strong> <span id="playerName"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Lobby Section -->
+        <section id="lobbySection" class="game-section">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h2 class="text-center mb-4">Game Lobby</h2>
+                    
+                    <ul class="nav nav-tabs mb-4" id="lobbyTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#createTab">Create Room</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#joinTab">Join Room</a>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content">
+                        <!-- Create Room Tab -->
+                        <div class="tab-pane fade show active" id="createTab">
+                            <div class="text-center mb-4">
+                                <button id="createRoomBtn" class="btn btn-success btn-lg" disabled>
+                                    <i class="fas fa-plus-circle me-2"></i>Create New Room
+                                </button>
+                            </div>
+                            
+                            <div id="roomInfo" class="alert alert-success" style="display: none;">
+                                <h4 class="alert-heading">Room Created!</h4>
+                                <p>Room Code: <span id="roomCode" class="badge bg-primary fs-5"></span></p>
+                                <p>Share this code with your friend to join the game.</p>
+                            </div>
+                            
+                            <div id="roomPlayers" style="display: none;">
+                                <h4>Players in Room:</h4>
+                                <ul id="playersList" class="list-group mb-3"></ul>
+                                
+                                <div class="d-flex justify-content-between">
+                                    <button id="startGameBtn" class="btn btn-primary" disabled>
+                                        <i class="fas fa-play me-2"></i>Start Game
+                                    </button>
+                                    <button id="leaveRoomBtn" class="btn btn-danger">
+                                        <i class="fas fa-door-open me-2"></i>Leave Room
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Join Room Tab -->
+                        <div class="tab-pane fade" id="joinTab">
+                            <div class="input-group mb-3">
+                                <input type="text" id="joinRoomCode" class="form-control" placeholder="Enter room code">
+                                <button id="joinRoomBtn" class="btn btn-primary" disabled>
+                                    <i class="fas fa-sign-in-alt me-2"></i>Join
+                                </button>
+                            </div>
+                            
+                            <div id="joinedRoomInfo" class="alert alert-success" style="display: none;">
+                                <h4 class="alert-heading">Room Joined!</h4>
+                                <p>Room Code: <span id="joinedRoomCode" class="badge bg-primary fs-5"></span></p>
+                            </div>
+                            
+                            <div id="joinedRoomPlayers" style="display: none;">
+                                <h4>Players in Room:</h4>
+                                <ul id="joinedPlayersList" class="list-group mb-3"></ul>
+                                
+                                <button id="leaveJoinedRoomBtn" class="btn btn-danger">
+                                    <i class="fas fa-door-open me-2"></i>Leave Room
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Game Section -->
+        <section id="gameSection" class="game-section">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h3 class="m-0">Round <span id="roundNumber">1</span></h3>
+                    <div>
+                        <span class="badge bg-success me-2">You: <span id="yourScore">0</span></span>
+                        <span class="badge bg-danger">Opponent: <span id="opponentScore">0</span></span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="cardDisplay" class="card mb-4">
+                        <div class="card-body">
+                            <h4 class="card-title text-center mb-3">Question</h4>
+                            <p id="cardQuestion" class="card-text fs-4 text-center">Card question will appear here</p>
+                        </div>
+                    </div>
+                    
+                    <div id="optionsContainer" class="row g-3 mb-3">
+                        <!-- Options will be added dynamically -->
+                    </div>
+                    
+                    <div id="answerFeedback" class="alert" style="display: none;"></div>
+                </div>
+                <div class="card-footer">
+                    <button id="leaveGameBtn" class="btn btn-outline-danger">
+                        <i class="fas fa-door-open me-2"></i>Leave Game
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section id="resultsSection" class="game-section">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="m-0">Game Results</h3>
+                </div>
+                <div class="card-body text-center">
+                    <div id="winnerDisplay" class="alert alert-success mb-4">
+                        <h2 id="winnerText">You Won!</h2>
+                    </div>
+                    
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h4 id="player1Name">Player 1</h4>
+                                </div>
+                                <div class="card-body">
+                                    <h2 id="player1Score">0</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h4 id="player2Name">Player 2</h4>
+                                </div>
+                                <div class="card-body">
+                                    <h2 id="player2Score">0</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-center">
+                        <button id="playAgainBtn" class="btn btn-success me-3">
+                            <i class="fas fa-redo me-2"></i>Play Again
+                        </button>
+                        <button id="returnToLobbyBtn" class="btn btn-primary">
+                            <i class="fas fa-home me-2"></i>Return to Lobby
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Connection Status -->
+        <div id="connectionStatus" class="connection-status">
+            <span id="statusIcon" class="status-icon disconnected"></span>
+            <span id="statusText">Disconnected</span>
+        </div>
+
+        <!-- Log Section (Collapsible) -->
+        <div class="log-container">
+            <button class="btn btn-sm btn-secondary log-toggle" data-bs-toggle="collapse" data-bs-target="#logSection">
+                <i class="fas fa-terminal"></i> Console Log
+            </button>
+            <div id="logSection" class="collapse">
+                <div id="log" class="log-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/cards.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

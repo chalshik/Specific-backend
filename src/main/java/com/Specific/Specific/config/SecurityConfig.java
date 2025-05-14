@@ -26,15 +26,22 @@ public class SecurityConfig {
         logger.info("Configuring security settings - ALL SECURITY DISABLED");
         http
             .csrf(AbstractHttpConfigurer::disable)
+            .cors(cors -> cors.configure(http)) // Explicitly enable CORS
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             // Remove Firebase auth filter
             // .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> {
-                // Permit ALL requests without authentication
+                // Explicitly permit WebSocket endpoints
+                auth.requestMatchers("/ws-game/**").permitAll();
+                auth.requestMatchers("/ws-game").permitAll();
+                auth.requestMatchers("/app/**").permitAll();
+                auth.requestMatchers("/topic/**").permitAll();
+                auth.requestMatchers("/queue/**").permitAll();
+                // Permit ALL other requests without authentication
                 auth.anyRequest().permitAll();
             });
         
-        logger.info("Security configuration completed - ALL ENDPOINTS ARE PUBLIC");
+        logger.info("Security configuration completed - ALL ENDPOINTS ARE PUBLIC WITH CORS ENABLED");
         return http.build();
     }
 } 
