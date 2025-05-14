@@ -215,24 +215,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Add socket event listeners for better error handling
-            socket.onclose = function(event) {
-                logMessage(`SockJS connection closed with code: ${event.code}`, 'warning');
-                
-                // Check for CORS errors (typical codes: 1006, 1002)
-                if (event.code === 1006 || event.code === 1002) {
-                    logMessage('Possible CORS or network connectivity issue detected', 'error');
-                    logMessage('Check that server allows connections from this origin', 'info');
-                }
+            socket.onclose = function() {
+                logMessage('SockJS connection closed', 'warning');
             };
             
             socket.onerror = function(error) {
                 logMessage(`SockJS transport error: ${error}`, 'error');
-                
-                // Check if error is a SecurityError (CORS related)
-                if (error instanceof Event && error.type === 'error') {
-                    // This could be a CORS error
-                    logMessage('Possible CORS issue: Check server CORS configuration', 'error');
-                }
             };
             
             // Connect to WebSocket with timeout
@@ -241,12 +229,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 handleConnectionFailure();
             }, 10000); // 10 second timeout
             
-            // Connect to WebSocket with authentication headers
+            // Connect to WebSocket
             stompClient.connect(
                 {
                     username: playerUsername,
-                    firebaseUid: firebaseUid,
-                    'X-Firebase-Uid': firebaseUid // Add header in both formats
+                    firebaseUid: firebaseUid
                 },
                 function() {
                     clearTimeout(connectTimeout);
@@ -255,20 +242,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 function(error) {
                     clearTimeout(connectTimeout);
-                    
-                    // Provide more detailed error messages
-                    if (typeof error === 'string') {
-                        if (error.includes('Whoops! Lost connection')) {
-                            logMessage('Lost connection to server', 'error');
-                        } else if (error.includes('Cross-Origin')) {
-                            logMessage('CORS error detected: Server is rejecting cross-origin requests', 'error');
-                        } else {
-                            logMessage(`STOMP error: ${error}`, 'error');
-                        }
-                    } else {
-                        logMessage(`STOMP error: ${error}`, 'error');
-                    }
-                    
+                    logMessage(`STOMP error: ${error}`, 'error');
                     handleConnectionFailure();
                 }
             );
@@ -366,15 +340,19 @@ document.addEventListener('DOMContentLoaded', function() {
     function createRoom() {
         logMessage('Creating new room...', 'info');
         
+        // Disable button to prevent multiple clicks
+        elements.create.createRoomBtn.disabled = true;
+        
         fetch(`${CONFIG.API_URL}/api/game/room?firebaseUid=${firebaseUid}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-Firebase-Uid': firebaseUid // Adding explicit Firebase UID header
             }
         })
         .then(response => {
             if (!response.ok) {
-                throw new Error('Failed to create room');
+                throw new Error(`Failed to create room. Status: ${response.status}`);
             }
             return response.json();
         })
@@ -382,6 +360,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Store room information
             currentRoomCode = room.roomCode;
             isHost = true;
+            
+            logMessage(`Room created with code: ${currentRoomCode}`, 'success');
             
             // Subscribe to room topic
             stompClient.subscribe(
@@ -397,10 +377,87 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add host to players list
             updatePlayersList();
             
-            logMessage(`Room created with code: ${currentRoomCode}`, 'success');
+            // Send a message to the room topic to announce creation
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                type: 'ROOM_CREATED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Also send room joined message to ensure visibility
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                type: 'ROOM_JOINED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
         })
         .catch(error => {
             logMessage(`Error creating room: ${error.message}`, 'error');
+            
+            // Try alternative approach - direct endpoint without /api prefix
+            logMessage('Trying alternative approach for room creation...', 'info');
+            
+            const altUrl = useAlternativeUrl 
+                ? `${CONFIG.ALT_API_URL}/game/room?firebaseUid=${firebaseUid}`
+                : `${CONFIG.API_URL}/game/room?firebaseUid=${firebaseUid}`;
+                
+            fetch(altUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Firebase-Uid': firebaseUid
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Alternative approach failed. Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(room => {
+                // Store room information
+                currentRoomCode = room.roomCode;
+                isHost = true;
+                
+                logMessage(`Room created with alternative approach. Code: ${currentRoomCode}`, 'success');
+                
+                // Subscribe to room topic
+                stompClient.subscribe(
+                    CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
+                    onMessageReceived
+                );
+                
+                // Update UI
+                elements.create.roomCode.textContent = currentRoomCode;
+                elements.create.roomInfo.style.display = 'block';
+                elements.create.roomPlayers.style.display = 'block';
+                
+                // Add host to players list
+                updatePlayersList();
+                
+                // Send a message to the room topic to announce creation
+                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                    type: 'ROOM_CREATED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername
+                }));
+                
+                // Also send room joined message to ensure visibility
+                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                    type: 'ROOM_JOINED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername
+                }));
+            })
+            .catch(altError => {
+                logMessage(`Alternative approach also failed: ${altError.message}`, 'error');
+                // Re-enable the create button
+                elements.create.createRoomBtn.disabled = false;
+            });
         });
     }
 
@@ -421,29 +478,69 @@ document.addEventListener('DOMContentLoaded', function() {
             onMessageReceived
         );
         
-        // Send join message to server endpoint with the correct message type 'JOIN_ROOM'
-        stompClient.send(CONFIG.SOCKET.ENDPOINTS.JOIN, {}, JSON.stringify({
-            type: 'JOIN_ROOM',
-            roomCode: roomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername
-        }));
-        
-        // Also send a direct message to the room topic to ensure visibility (fallback)
-        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {}, JSON.stringify({
-            type: 'ROOM_JOINED',
-            roomCode: roomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername
-        }));
-        
-        // Store room information
-        currentRoomCode = roomCode;
-        isHost = false;
-        
-        // Add additional debug logging
-        logMessage(`Subscribed to room topic: ${CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode}`, 'info');
-        logMessage(`Joining as user: ${playerUsername} (${firebaseUid})`, 'info');
+        // Use a more comprehensive joining approach
+        try {
+            // Send join message to application endpoint
+            logMessage('Sending join message to application endpoint', 'info');
+            stompClient.send(CONFIG.SOCKET.ENDPOINTS.JOIN, {
+                firebaseUid: firebaseUid,
+                username: playerUsername
+            }, JSON.stringify({
+                type: 'JOIN_ROOM',  // Fixed message type to match server expectations
+                roomCode: roomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Also send directly to room topic for redundancy (like in simple-test.html)
+            logMessage('Sending join message directly to room topic for redundancy', 'info');
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {
+                firebaseUid: firebaseUid,
+                username: playerUsername
+            }, JSON.stringify({
+                type: 'ROOM_JOINED',
+                roomCode: roomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername
+            }));
+            
+            // Store room information
+            currentRoomCode = roomCode;
+            isHost = false;
+            
+            // Update UI to show we're attempting to join
+            elements.join.joinedRoomCode.textContent = roomCode;
+            elements.join.joinedRoomInfo.style.display = 'block';
+            
+            // Disable join button to prevent double-joining
+            elements.join.joinRoomBtn.disabled = true;
+            
+            logMessage(`Room join request sent for ${roomCode}`, 'success');
+            
+            // Set a timeout to detect if join failed
+            setTimeout(() => {
+                // If players list is still empty after timeout, likely join failed
+                if (elements.join.joinedPlayersList.children.length === 0) {
+                    logMessage('No confirmation received for room join. Room may not exist.', 'warning');
+                    
+                    // Add ourselves to players list anyway as a fallback
+                    const guestItem = document.createElement('li');
+                    guestItem.className = 'list-group-item';
+                    guestItem.innerHTML = `
+                        <i class="fas fa-user player-icon"></i>
+                        ${playerUsername}
+                        <span class="badge bg-secondary host-badge">Guest</span>
+                    `;
+                    elements.join.joinedPlayersList.appendChild(guestItem);
+                    elements.join.joinedRoomPlayers.style.display = 'block';
+                }
+            }, 3000);
+            
+        } catch (error) {
+            logMessage(`Error joining room: ${error.message}`, 'error');
+            // Re-enable join button if there was an error
+            elements.join.joinRoomBtn.disabled = false;
+        }
     }
 
     // Start the game
@@ -455,23 +552,13 @@ document.addEventListener('DOMContentLoaded', function() {
         
         logMessage('Starting game...', 'info');
         
-        // Send start game message to server endpoint with the correct message type
+        // Send start game message
         stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, {}, JSON.stringify({
-            type: 'START_GAME',
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername
-        }));
-        
-        // Also send a direct message to the room topic (fallback)
-        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
             type: 'GAME_STARTED',
             roomCode: currentRoomCode,
             senderId: firebaseUid,
             senderUsername: playerUsername
         }));
-        
-        logMessage(`Sent START_GAME message to room: ${currentRoomCode}`, 'info');
     }
 
     // Submit an answer
@@ -600,37 +687,94 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle room joined message
     function handleRoomJoined(message) {
-        logMessage(`${message.senderUsername} joined the room`, 'info');
+        logMessage(`${message.senderUsername} joined the room: ${message.roomCode}`, 'info');
+        
+        // Check if this is a message for our current room
+        if (message.roomCode !== currentRoomCode) {
+            logMessage(`Ignoring message for different room: ${message.roomCode}`, 'warning');
+            return;
+        }
         
         // Update UI based on whether we're host or guest
         if (isHost) {
-            // Add guest to players list
-            const guestItem = document.createElement('li');
-            guestItem.className = 'list-group-item';
-            guestItem.innerHTML = `
-                <i class="fas fa-user player-icon"></i>
-                ${message.senderUsername}
-                <span class="badge bg-secondary host-badge">Guest</span>
-            `;
-            elements.create.playersList.appendChild(guestItem);
-            
-            // Enable start button when guest joins
-            elements.create.startGameBtn.disabled = false;
+            // Check if this is a new player or repeat message from existing player
+            const existingPlayer = Array.from(elements.create.playersList.children)
+                .some(item => item.textContent.includes(message.senderUsername));
+                
+            if (!existingPlayer) {
+                // Add guest to players list
+                const guestItem = document.createElement('li');
+                guestItem.className = 'list-group-item';
+                guestItem.innerHTML = `
+                    <i class="fas fa-user player-icon"></i>
+                    ${message.senderUsername}
+                    <span class="badge bg-secondary host-badge">Guest</span>
+                `;
+                elements.create.playersList.appendChild(guestItem);
+                
+                // Enable start button when guest joins
+                elements.create.startGameBtn.disabled = false;
+                
+                logMessage(`Guest ${message.senderUsername} added to room`, 'success');
+            }
         } else {
-            // Update joined room info
-            elements.join.joinedRoomCode.textContent = currentRoomCode;
-            elements.join.joinedRoomInfo.style.display = 'block';
-            elements.join.joinedRoomPlayers.style.display = 'block';
-            
-            // Add ourselves to players list
-            const guestItem = document.createElement('li');
-            guestItem.className = 'list-group-item';
-            guestItem.innerHTML = `
-                <i class="fas fa-user player-icon"></i>
-                ${playerUsername}
-                <span class="badge bg-secondary host-badge">Guest</span>
-            `;
-            elements.join.joinedPlayersList.appendChild(guestItem);
+            // If message is about someone else
+            if (message.senderUsername !== playerUsername) {
+                // This is likely about the host
+                const hostItem = document.createElement('li');
+                hostItem.className = 'list-group-item';
+                hostItem.innerHTML = `
+                    <i class="fas fa-user player-icon"></i>
+                    ${message.senderUsername}
+                    <span class="badge bg-primary host-badge">Host</span>
+                `;
+                
+                // Add to joined players list if not already there
+                const existingHost = Array.from(elements.join.joinedPlayersList.children)
+                    .some(item => item.textContent.includes(message.senderUsername));
+                    
+                if (!existingHost) {
+                    elements.join.joinedPlayersList.appendChild(hostItem);
+                }
+                
+                logMessage(`Found host: ${message.senderUsername}`, 'info');
+            } else {
+                // This is about us - our join was confirmed
+                elements.join.joinedRoomInfo.style.display = 'block';
+                elements.join.joinedRoomPlayers.style.display = 'block';
+                
+                // Add ourselves to players list if not already there
+                const existingSelf = Array.from(elements.join.joinedPlayersList.children)
+                    .some(item => item.textContent.includes(playerUsername));
+                    
+                if (!existingSelf) {
+                    const guestItem = document.createElement('li');
+                    guestItem.className = 'list-group-item';
+                    guestItem.innerHTML = `
+                        <i class="fas fa-user player-icon"></i>
+                        ${playerUsername}
+                        <span class="badge bg-secondary host-badge">Guest</span>
+                    `;
+                    elements.join.joinedPlayersList.appendChild(guestItem);
+                }
+                
+                logMessage('Join confirmed successfully', 'success');
+            }
+        }
+        
+        // Send a confirmation message to ensure bidirectional visibility
+        if (stompClient && stompClient.connected) {
+            // Don't echo if it's our own message
+            if (message.senderUsername !== playerUsername) {
+                logMessage(`Sending confirmation to ${message.senderUsername}`, 'info');
+                
+                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                    type: 'ROOM_JOINED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername
+                }));
+            }
         }
     }
 
@@ -966,7 +1110,59 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle error message
     function handleError(message) {
-        logMessage(`Error: ${message.content}`, 'error');
+        const errorContent = message.content || 'Unknown error';
+        logMessage(`Error: ${errorContent}`, 'error');
+        
+        // Display error to user with a toast/alert
+        const errorToast = document.createElement('div');
+        errorToast.className = 'toast show bg-danger text-white';
+        errorToast.setAttribute('role', 'alert');
+        errorToast.setAttribute('aria-live', 'assertive');
+        errorToast.setAttribute('aria-atomic', 'true');
+        errorToast.style.position = 'fixed';
+        errorToast.style.bottom = '20px';
+        errorToast.style.right = '20px';
+        errorToast.style.minWidth = '250px';
+        errorToast.style.zIndex = '1050';
+        
+        errorToast.innerHTML = `
+            <div class="toast-header bg-danger text-white">
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body">
+                ${errorContent}
+            </div>
+        `;
+        
+        document.body.appendChild(errorToast);
+        
+        // Automatically remove the toast after 5 seconds
+        setTimeout(() => {
+            errorToast.remove();
+        }, 5000);
+        
+        // Close button functionality
+        const closeBtn = errorToast.querySelector('.btn-close');
+        closeBtn.addEventListener('click', () => {
+            errorToast.remove();
+        });
+        
+        // Handle specific error types
+        if (errorContent.includes('Room not found') || errorContent.includes('already full')) {
+            // Reset room state if we tried to join a non-existent or full room
+            if (!isHost) {
+                resetRoomState();
+                elements.join.joinRoomBtn.disabled = false;
+                elements.join.joinedRoomInfo.style.display = 'none';
+                elements.join.joinedRoomPlayers.style.display = 'none';
+            }
+        } else if (errorContent.includes('Failed to start game')) {
+            // Re-enable start button if game start failed
+            if (isHost) {
+                elements.create.startGameBtn.disabled = false;
+            }
+        }
     }
 
     // Initialize the application
