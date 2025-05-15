@@ -5,12 +5,12 @@ const CONFIG = {
     // Debug mode (enables logging)
     DEBUG: true,
     
-    // API URLs
-    API_URL: window.location.protocol + '//' + window.location.host,
-    ALT_API_URL: window.location.protocol + '//' + window.location.host,
+    // API URLs - Update these to match your actual backend server
+    API_URL: 'https://specific-backend.onrender.com',  // Main backend URL
+    ALT_API_URL: 'http://localhost:8081',              // Alternative URL for local development
     
     // WebSocket endpoint
-    WS_ENDPOINT: '/ws',
+    WS_ENDPOINT: '/ws-game',
     
     // Socket configurations
     SOCKET: {
@@ -40,5 +40,11 @@ const CONFIG = {
         VERBOSE_LOGGING: true,
         CONNECTION_RETRY_LIMIT: 3,
         CONNECTION_RETRY_DELAY: 3000
+    },
+    
+    // CORS settings
+    CORS: {
+        ALLOWED_ORIGINS: ['*'],
+        WITH_CREDENTIALS: true
     }
 };

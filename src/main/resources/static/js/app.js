@@ -194,9 +194,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const maxConnectionAttempts = 3;
     let useAlternativeUrl = false;
     
-    // Connect to WebSocket
+    // Connect to WebSocket server
     function connectWebSocket() {
         updateConnectionStatus('connecting');
+        logMessage(`Connecting to WebSocket server (attempt ${connectionAttempts+1})...`, 'info');
         
         // Disconnect if already connected
         if (stompClient) {
@@ -232,12 +233,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 handleConnectionFailure();
             }, 10000); // 10 second timeout
             
-            // Connect to WebSocket
+            // Additional headers for authentication
+            const headers = {
+                username: playerUsername,
+                firebaseUid: firebaseUid
+            };
+            
+            // Set the client ID to be unique for this session
+            const clientId = 'specific-client-' + Math.random().toString(36).substring(2, 15);
+            
+            // Connect to WebSocket with proper headers and client ID
             stompClient.connect(
-                {
-                    username: playerUsername,
-                    firebaseUid: firebaseUid
-                },
+                headers,
                 function() {
                     clearTimeout(connectTimeout);
                     connectionAttempts = 0;
@@ -247,7 +254,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     clearTimeout(connectTimeout);
                     logMessage(`STOMP error: ${error}`, 'error');
                     handleConnectionFailure();
-                }
+                },
+                clientId
             );
         } catch (e) {
             logMessage(`Connection exception: ${e.message}`, 'error');
