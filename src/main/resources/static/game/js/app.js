@@ -532,9 +532,28 @@ document.addEventListener('DOMContentLoaded', function() {
         // Clear any existing interval
         if (hostPresenceInterval) {
             clearInterval(hostPresenceInterval);
+            logMessage('Cleared previous host presence interval', 'info');
         }
         
-        // Set up a new interval to send messages every 10 seconds
+        // Send an immediate presence message to quickly inform any waiting guests
+        if (isHost && currentRoomCode && stompClient && stompClient.connected) {
+            logMessage('Sending immediate host presence message', 'info');
+            // Send a presence message to the room
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                { firebaseUid: firebaseUid },
+                JSON.stringify({
+                    type: 'HOST_PRESENCE',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now(),
+                    isHost: true
+                })
+            );
+        }
+        
+        // Set up a new interval to send messages every 5 seconds
+        // More frequent than before (was 10s) to improve responsiveness
         hostPresenceInterval = setInterval(() => {
             if (isHost && currentRoomCode && stompClient && stompClient.connected) {
                 // Send a presence message to the room
@@ -545,15 +564,28 @@ document.addEventListener('DOMContentLoaded', function() {
                         roomCode: currentRoomCode,
                         senderId: firebaseUid,
                         senderUsername: playerUsername,
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        isHost: true
                     })
                 );
                 
                 if (CONFIG.RELIABILITY.VERBOSE_LOGGING) {
                     logMessage('Sent host presence message', 'info');
                 }
+            } else if (hostPresenceInterval && !isHost) {
+                // No longer host, clear the interval
+                clearInterval(hostPresenceInterval);
+                hostPresenceInterval = null;
+                logMessage('Cleared host presence interval (no longer host)', 'info');
+            } else if (hostPresenceInterval && !currentRoomCode) {
+                // No active room, clear the interval
+                clearInterval(hostPresenceInterval);
+                hostPresenceInterval = null;
+                logMessage('Cleared host presence interval (no active room)', 'info');
             }
-        }, 10000); // Every 10 seconds
+        }, 5000); // Every 5 seconds
+        
+        logMessage('Set up host presence interval (every 5s)', 'info');
     }
 
     // Send a message to the current room topic
@@ -789,6 +821,26 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.join.joinedRoomInfo.style.display = 'block';
         elements.join.joinedRoomPlayers.style.display = 'block';
         
+        // Hide join form elements and show joining status
+        elements.join.joinRoomBtn.style.display = 'none';
+        elements.join.joinRoomCodeInput.style.display = 'none';
+        const joinFormLabel = document.querySelector('label[for="joinRoomCode"]');
+        if (joinFormLabel) {
+            joinFormLabel.style.display = 'none';
+        }
+        
+        // Show a joining message
+        const joiningStatusDiv = document.createElement('div');
+        joiningStatusDiv.id = 'joining-status';
+        joiningStatusDiv.className = 'alert alert-info mt-3';
+        joiningStatusDiv.innerHTML = `
+            <div class="d-flex align-items-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                <span>Joining room ${roomCode}...</span>
+            </div>
+        `;
+        elements.join.joinRoomBtn.parentNode.appendChild(joiningStatusDiv);
+        
         // Unsubscribe from any previous room topics
         try {
             if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
@@ -813,6 +865,22 @@ document.addEventListener('DOMContentLoaded', function() {
         // Debug: Log all subscription destinations
         if (stompClient.subscriptions) {
             logMessage(`Current subscriptions: ${Object.keys(stompClient.subscriptions).join(', ')}`, 'info');
+        }
+        
+        // Add a player indicator for ourselves immediately for better UI feedback
+        const existingSelf = Array.from(elements.join.joinedPlayersList.children)
+            .some(item => item.textContent.includes(playerUsername));
+        
+        if (!existingSelf) {
+            const guestItem = document.createElement('li');
+            guestItem.className = 'list-group-item';
+            guestItem.innerHTML = `
+                <i class="fas fa-user player-icon"></i>
+                ${playerUsername} (You)
+                <span class="badge bg-secondary host-badge">Guest</span>
+            `;
+            elements.join.joinedPlayersList.appendChild(guestItem);
+            logMessage('Added self to player list for immediate feedback', 'info');
         }
         
         // IMPORTANT: Send join message to application endpoint
@@ -858,8 +926,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Set a timeout to detect if join failed
         joinResponseTimeout = setTimeout(() => {
-            // If players list is still empty after timeout, likely join failed
-            if (elements.join.joinedPlayersList.children.length <= 1) {
+            // If no host player has been added, assume join failed to complete properly
+            const hasHostPlayer = Array.from(elements.join.joinedPlayersList.children)
+                .some(item => item.textContent.includes('Host'));
+                
+            if (!hasHostPlayer) {
                 logMessage('No host confirmation received, sending another GUEST_JOINED message', 'warning');
                 
                 // Try direct message to room topic again
@@ -874,19 +945,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     timestamp: Date.now(),
                     isRetry: true
                 }));
-                
-                // Add ourselves to players list anyway as a fallback
-                if (elements.join.joinedPlayersList.children.length === 0) {
-                    const guestItem = document.createElement('li');
-                    guestItem.className = 'list-group-item';
-                    guestItem.innerHTML = `
-                        <i class="fas fa-user player-icon"></i>
-                        ${playerUsername} (You)
-                        <span class="badge bg-secondary host-badge">Guest</span>
-                    `;
-                    elements.join.joinedPlayersList.appendChild(guestItem);
-                    logMessage('Added self to player list as fallback', 'info');
-                }
+            }
+            
+            // Remove joining status message
+            const joiningStatus = document.getElementById('joining-status');
+            if (joiningStatus) {
+                joiningStatus.remove();
             }
             
             // Remove loading indicator
@@ -894,6 +958,23 @@ document.addEventListener('DOMContentLoaded', function() {
             if (loadingIndicator) {
                 loadingIndicator.remove();
             }
+            
+            // Show join success message
+            const joinedStatusDiv = document.createElement('div');
+            joinedStatusDiv.id = 'joined-status';
+            joinedStatusDiv.className = hasHostPlayer ? 'alert alert-success mt-3' : 'alert alert-warning mt-3';
+            joinedStatusDiv.innerHTML = hasHostPlayer ? 
+                `<strong>Successfully joined room!</strong>` : 
+                `<strong>Joined room, waiting for host...</strong>`;
+            elements.join.joinedRoomInfo.appendChild(joinedStatusDiv);
+            
+            // Auto-remove success message after 5 seconds
+            setTimeout(() => {
+                const joinedStatus = document.getElementById('joined-status');
+                if (joinedStatus) {
+                    joinedStatus.remove();
+                }
+            }, 5000);
             
         }, 3000);
         
@@ -913,7 +994,19 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Check if this is our own message and not the first join
+        // Remove joining status if it exists
+        const joiningStatus = document.getElementById('joining-status');
+        if (joiningStatus) {
+            joiningStatus.remove();
+        }
+
+        // Remove loading indicator if it exists
+        const loadingIndicator = document.getElementById('join-room-loading');
+        if (loadingIndicator) {
+            loadingIndicator.remove();
+        }
+        
+        // Check if this is our own message
         const isSelfMessage = message.senderUsername === playerUsername || message.senderId === firebaseUid;
         
         // Debug logs for diagnosis
@@ -922,95 +1015,115 @@ document.addEventListener('DOMContentLoaded', function() {
         // Different handling based on whether we're host or guest
         if (isHost) {
             // As host, add the joining user to our player list if not already there
-            // Skip ourselves to avoid duplication, but allow our first join message
             const existingPlayer = Array.from(elements.create.playersList.children)
                 .some(item => item.textContent.includes(message.senderUsername));
                 
-            if (!existingPlayer && (!isSelfMessage || elements.create.playersList.children.length === 0)) {
+            if (!existingPlayer && !isSelfMessage) {
                 // Add guest to players list
                 const guestItem = document.createElement('li');
                 guestItem.className = 'list-group-item';
                 guestItem.innerHTML = `
                     <i class="fas fa-user player-icon"></i>
-                    ${message.senderUsername}${isSelfMessage ? ' (You)' : ''}
-                    <span class="badge ${isSelfMessage ? 'bg-primary' : 'bg-secondary'} host-badge">
-                        ${isSelfMessage ? 'Host' : 'Guest'}
-                    </span>
+                    ${message.senderUsername}
+                    <span class="badge bg-secondary host-badge">Guest</span>
                 `;
                 elements.create.playersList.appendChild(guestItem);
                 
-                // Enable start button when a real guest joins (not ourselves)
-                if (!isSelfMessage) {
-                    elements.create.startGameBtn.disabled = false;
-                    logMessage(`Guest ${message.senderUsername} added to room - enabling Start Game button`, 'success');
-                    
-                    // Always reply to a joining guest for visibility
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                // Enable start button when a guest joins
+                elements.create.startGameBtn.disabled = false;
+                logMessage(`Guest ${message.senderUsername} added to room - enabling Start Game button`, 'success');
+                
+                // Show success message
+                const successMessage = document.createElement('div');
+                successMessage.id = 'guest-joined-notification';
+                successMessage.className = 'alert alert-success mt-3';
+                successMessage.innerHTML = `<strong>${message.senderUsername}</strong> has joined your room!`;
+                elements.create.roomInfo.appendChild(successMessage);
+                
+                // Auto-remove success message after 3 seconds
+                setTimeout(() => {
+                    const notification = document.getElementById('guest-joined-notification');
+                    if (notification) {
+                        notification.remove();
+                    }
+                }, 3000);
+                
+                // Send acknowledgement to ensure bidirectional visibility
+                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                    { firebaseUid: firebaseUid },
+                    JSON.stringify({
                         type: 'ROOM_JOINED',
                         roomCode: currentRoomCode,
                         senderId: firebaseUid,
                         senderUsername: playerUsername,
                         timestamp: Date.now(),
-                        isHostReply: true // Mark this as a host reply
-                    }));
-                }
+                        isHostReply: true, 
+                        message: `Host ${playerUsername} acknowledges guest ${message.senderUsername}`
+                    })
+                );
             }
-        } else {
-            // As guest, handle both the host and ourselves
-            if (!isSelfMessage) {
-                // This message is about another player (likely the host)
-                const isHostMessage = message.isHostReply === true;
-                const hostItem = document.createElement('li');
-                hostItem.className = 'list-group-item';
-                hostItem.innerHTML = `
-                    <i class="fas fa-user player-icon"></i>
-                    ${message.senderUsername}
-                    <span class="badge bg-primary host-badge">Host</span>
-                `;
+        } else if (!isSelfMessage) {
+            // As guest, handle host messages
+            const isHostMessage = message.isHostReply === true;
+            const isHostSender = message.type === 'ROOM_CREATED' || message.isHost === true;
+            
+            // Create host item for display
+            const hostItem = document.createElement('li');
+            hostItem.className = 'list-group-item';
+            hostItem.innerHTML = `
+                <i class="fas fa-user player-icon"></i>
+                ${message.senderUsername}
+                <span class="badge bg-primary host-badge">Host</span>
+            `;
+            
+            // Add to joined players list if not already there
+            const existingHost = Array.from(elements.join.joinedPlayersList.children)
+                .some(item => item.textContent.includes(message.senderUsername) && 
+                              item.textContent.includes('Host'));
                 
-                // Add to joined players list if not already there
-                const existingHost = Array.from(elements.join.joinedPlayersList.children)
-                    .some(item => item.textContent.includes(message.senderUsername));
-                    
-                if (!existingHost) {
-                    elements.join.joinedPlayersList.appendChild(hostItem);
-                    logMessage(`Host ${message.senderUsername} found in room`, 'success');
-                    
-                    // Ensure our UI is properly showing the room
-                    elements.join.joinedRoomInfo.style.display = 'block';
-                    elements.join.joinedRoomPlayers.style.display = 'block';
-                    
-                    // Send back another confirmation so the host definitely sees us
-                    if (!isHostMessage) {
-                        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
-                            type: 'ROOM_JOINED',
-                            roomCode: currentRoomCode,
-                            senderId: firebaseUid,
-                            senderUsername: playerUsername,
-                            timestamp: Date.now(),
-                            isGuestReply: true
-                        }));
-                    }
-                }
-            } else {
-                // This is about us - our join confirmation
+            if (!existingHost) {
+                elements.join.joinedPlayersList.appendChild(hostItem);
+                logMessage(`Host ${message.senderUsername} found in room`, 'success');
+                
+                // Ensure our UI is properly showing the room
                 elements.join.joinedRoomInfo.style.display = 'block';
                 elements.join.joinedRoomPlayers.style.display = 'block';
                 
-                // Add ourselves to players list if not already there
-                const existingSelf = Array.from(elements.join.joinedPlayersList.children)
-                    .some(item => item.textContent.includes(playerUsername));
-                    
-                if (!existingSelf) {
-                    const guestItem = document.createElement('li');
-                    guestItem.className = 'list-group-item';
-                    guestItem.innerHTML = `
-                        <i class="fas fa-user player-icon"></i>
-                        ${playerUsername} (You)
-                        <span class="badge bg-secondary host-badge">Guest</span>
-                    `;
-                    elements.join.joinedPlayersList.appendChild(guestItem);
-                    logMessage('Join confirmed, added ourselves to player list', 'success');
+                // Show success message
+                const successMessage = document.createElement('div');
+                successMessage.id = 'joined-success-notification';
+                successMessage.className = 'alert alert-success mt-3';
+                successMessage.innerHTML = `Successfully joined <strong>${message.senderUsername}'s</strong> room!`;
+                elements.join.joinedRoomInfo.appendChild(successMessage);
+                
+                // Auto-remove success message after 3 seconds
+                setTimeout(() => {
+                    const notification = document.getElementById('joined-success-notification');
+                    if (notification) {
+                        notification.remove();
+                    }
+                }, 3000);
+                
+                // Send back another confirmation to ensure host sees us
+                if (!isHostMessage) {
+                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                        type: 'GUEST_JOINED',
+                        roomCode: currentRoomCode,
+                        senderId: firebaseUid,
+                        senderUsername: playerUsername,
+                        timestamp: Date.now(),
+                        isGuestReply: true
+                    }));
+                }
+            }
+            
+            if (isHostMessage) {
+                logMessage(`Host ${message.senderUsername} acknowledged our join`, 'success');
+                
+                // Remove any waiting for host messages
+                const waitingMessage = document.getElementById('joined-status');
+                if (waitingMessage && waitingMessage.textContent.includes('waiting for host')) {
+                    waitingMessage.remove();
                 }
             }
         }
@@ -1042,10 +1155,53 @@ document.addEventListener('DOMContentLoaded', function() {
                         handleRoomJoined(message);
                     }
                     break;
+                case 'HOST_PRESENCE':
+                    // Handle host presence message
+                    if (!isHost && message.roomCode === currentRoomCode) {
+                        logMessage(`Host ${message.senderUsername} is active in the room`, 'info');
+                        
+                        // If we're still having a loading indicator, remove it
+                        const loadingIndicator = document.getElementById('join-room-loading');
+                        if (loadingIndicator) {
+                            loadingIndicator.remove();
+                            logMessage('Removed join loading indicator after host presence detected', 'info');
+                        }
+                        
+                        // Make sure host appears in the player list
+                        const existingHost = Array.from(elements.join.joinedPlayersList.children)
+                            .some(item => item.textContent.includes(message.senderUsername));
+                            
+                        if (!existingHost) {
+                            const hostItem = document.createElement('li');
+                            hostItem.className = 'list-group-item';
+                            hostItem.innerHTML = `
+                                <i class="fas fa-user player-icon"></i>
+                                ${message.senderUsername}
+                                <span class="badge bg-primary host-badge">Host</span>
+                            `;
+                            elements.join.joinedPlayersList.appendChild(hostItem);
+                            logMessage(`Added host ${message.senderUsername} to player list from presence message`, 'success');
+                        }
+                        
+                        // Make sure UI is properly showing the room
+                        elements.join.joinedRoomInfo.style.display = 'block';
+                        elements.join.joinedRoomPlayers.style.display = 'block';
+                        
+                        // Re-enable join button if it's still disabled
+                        elements.join.joinRoomBtn.disabled = false;
+                    }
+                    break;
+                case 'ROUND_SYNC':
+                    // Handle round synchronization to ensure both players are on the same round
+                    if (message.roomCode === currentRoomCode && message.senderId !== firebaseUid) {
+                        handleRoundSync(message);
+                    }
+                    break;
                 case 'GAME_STARTED':
                     handleGameStarted(message);
                     break;
                 case 'NEXT_ROUND':
+                    // For backward compatibility with older versions
                     handleNextRound(message);
                     break;
                 case 'ANSWER_SUBMITTED':
@@ -1089,9 +1245,126 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                     }
             }
+            
+            // Always make sure the loading indicator is removed after any message
+            const loadingIndicator = document.getElementById('join-room-loading');
+            if (loadingIndicator && message.roomCode === currentRoomCode) {
+                loadingIndicator.remove();
+                logMessage('Removed join loading indicator after message received', 'info');
+            }
+            
         } catch (error) {
             logMessage(`Error processing message: ${error.message}`, 'error');
             logMessage(`Problematic payload: ${payload.body}`, 'error');
+            
+            // Remove loading indicator even on error
+            const loadingIndicator = document.getElementById('join-room-loading');
+            if (loadingIndicator) {
+                loadingIndicator.remove();
+                logMessage('Removed join loading indicator after error', 'info');
+            }
+        }
+    }
+    
+    // Handle round synchronization message to ensure both players are in sync
+    function handleRoundSync(message) {
+        const syncData = message.syncData;
+        
+        if (!syncData) {
+            logMessage('Received round sync message without sync data', 'warning');
+            return;
+        }
+        
+        logMessage(`Received round sync for round ${syncData.roundNumber} (our round: ${gameState.roundNumber})`, 'info');
+        
+        // If we're already ahead, ignore
+        if (syncData.roundNumber < gameState.roundNumber) {
+            logMessage('We are ahead of the sender, ignoring sync', 'info');
+            return;
+        }
+        
+        // If we're on the same round, verify card and scores
+        if (syncData.roundNumber === gameState.roundNumber) {
+            // Update scores if they don't match
+            if (syncData.hostScore !== gameState.hostScore || syncData.guestScore !== gameState.guestScore) {
+                gameState.hostScore = syncData.hostScore;
+                gameState.guestScore = syncData.guestScore;
+                
+                // Update our score display based on whether we're host or guest
+                if (isHost) {
+                    gameState.yourScore = syncData.hostScore;
+                    gameState.opponentScore = syncData.guestScore;
+                } else {
+                    gameState.yourScore = syncData.guestScore;
+                    gameState.opponentScore = syncData.hostScore;
+                }
+                
+                // Update UI
+                elements.game.yourScore.textContent = gameState.yourScore;
+                elements.game.opponentScore.textContent = gameState.opponentScore;
+                
+                logMessage('Updated scores to match sync data', 'info');
+            }
+            
+            // Verify we're on the same card
+            const currentCard = gameState.gameCards[gameState.currentCardIndex];
+            if (currentCard && currentCard.front !== syncData.cardFront) {
+                logMessage('Card mismatch detected, adjusting...', 'warning');
+                
+                // Find the correct card in our deck
+                const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
+                if (cardIndex !== -1) {
+                    gameState.currentCardIndex = cardIndex;
+                    
+                    // Update UI with the correct card
+                    elements.game.cardQuestion.textContent = gameState.gameCards[cardIndex].front;
+                    logMessage(`Adjusted to card at index ${cardIndex}`, 'success');
+                }
+            }
+            
+            return;
+        }
+        
+        // If we're behind, catch up to the correct round
+        if (syncData.roundNumber > gameState.roundNumber) {
+            logMessage(`We are behind (round ${gameState.roundNumber} vs ${syncData.roundNumber}), catching up`, 'warning');
+            
+            // Update to match the sender's state
+            gameState.roundNumber = syncData.roundNumber - 1; // -1 because startNextRound will increment
+            gameState.hostScore = syncData.hostScore;
+            gameState.guestScore = syncData.guestScore;
+            
+            // Update our score display based on whether we're host or guest
+            if (isHost) {
+                gameState.yourScore = syncData.hostScore;
+                gameState.opponentScore = syncData.guestScore;
+            } else {
+                gameState.yourScore = syncData.guestScore;
+                gameState.opponentScore = syncData.hostScore;
+            }
+            
+            // Find the correct card index
+            const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
+            if (cardIndex !== -1) {
+                gameState.currentCardIndex = cardIndex - 1; // -1 because startNextRound will increment
+            }
+            
+            // Start the next round to align with the sender
+            startNextRound();
+        }
+    }
+    
+    // Handle next round message from the other player (for backward compatibility)
+    function handleNextRound(message) {
+        // If we're already on this round, ignore
+        if (message.roundNumber === gameState.roundNumber) {
+            return;
+        }
+        
+        // If we're behind, catch up
+        if (message.roundNumber > gameState.roundNumber) {
+            logMessage(`Received next round message: we are behind (${gameState.roundNumber} vs ${message.roundNumber})`, 'warning');
+            startNextRound();
         }
     }
 
@@ -1151,28 +1424,134 @@ document.addEventListener('DOMContentLoaded', function() {
         
         logMessage(`Leaving room ${currentRoomCode}...`, 'info');
         
-        // Send leave message
-        stompClient.send(CONFIG.SOCKET.ENDPOINTS.LEAVE, {}, JSON.stringify({
-            type: 'LEAVE_ROOM',
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername
-        }));
+        // First send multiple leave messages for redundancy
+        // This ensures the other player is notified even if one message fails
+        
+        // Send leave message to application endpoint
+        stompClient.send(CONFIG.SOCKET.ENDPOINTS.LEAVE, 
+            { 
+                firebaseUid: firebaseUid,
+                roomCode: currentRoomCode 
+            }, 
+            JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now(),
+                isHost: isHost
+            })
+        );
+        
+        // Also send direct message to room topic for redundancy
+        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+            { 
+                firebaseUid: firebaseUid,
+                roomCode: currentRoomCode 
+            }, 
+            JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now(),
+                isHost: isHost
+            })
+        );
+        
+        // Unsubscribe from room topic
+        try {
+            if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
+                stompClient.unsubscribe('room-subscription');
+                logMessage('Unsubscribed from room topic', 'info');
+            }
+        } catch (e) {
+            logMessage(`Error unsubscribing from room: ${e.message}`, 'warning');
+        }
+        
+        // Clear host presence interval if we're the host
+        if (isHost && hostPresenceInterval) {
+            clearInterval(hostPresenceInterval);
+            hostPresenceInterval = null;
+            logMessage('Cleared host presence interval', 'info');
+        }
         
         // Reset room state
         resetRoomState();
         
         // Update UI
         if (isCreator) {
+            // Reset create room view
             elements.create.roomInfo.style.display = 'none';
             elements.create.roomPlayers.style.display = 'none';
             elements.create.startGameBtn.disabled = true;
+            elements.create.playersList.innerHTML = '';
+            
+            // Re-enable create button
+            elements.create.createRoomBtn.disabled = false;
         } else {
+            // Reset join room view
             elements.join.joinedRoomInfo.style.display = 'none';
             elements.join.joinedRoomPlayers.style.display = 'none';
+            elements.join.joinedPlayersList.innerHTML = '';
+            
+            // Show join form again
+            elements.join.joinRoomBtn.style.display = '';
+            elements.join.joinRoomCodeInput.style.display = '';
+            elements.join.joinRoomCodeInput.value = '';
+            elements.join.joinRoomBtn.disabled = false;
+            
+            const joinFormLabel = document.querySelector('label[for="joinRoomCode"]');
+            if (joinFormLabel) {
+                joinFormLabel.style.display = '';
+            }
         }
         
-        logMessage('Left room', 'success');
+        // Remove any status messages or notifications
+        const statuses = ['joining-status', 'joined-status', 'guest-joined-notification', 'joined-success-notification'];
+        statuses.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.remove();
+            }
+        });
+        
+        logMessage('Left room successfully', 'success');
+        
+        // Display a success message
+        const successToast = document.createElement('div');
+        successToast.className = 'toast show bg-success text-white';
+        successToast.setAttribute('role', 'alert');
+        successToast.setAttribute('aria-live', 'assertive');
+        successToast.setAttribute('aria-atomic', 'true');
+        successToast.style.position = 'fixed';
+        successToast.style.bottom = '20px';
+        successToast.style.right = '20px';
+        successToast.style.minWidth = '250px';
+        successToast.style.zIndex = '1050';
+        
+        successToast.innerHTML = `
+            <div class="toast-header bg-success text-white">
+                <strong class="me-auto">Success</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body">
+                You have left the room successfully.
+            </div>
+        `;
+        
+        document.body.appendChild(successToast);
+        
+        // Automatically remove the toast after 3 seconds
+        setTimeout(() => {
+            successToast.remove();
+        }, 3000);
+        
+        // Add close button functionality
+        const closeBtn = successToast.querySelector('.btn-close');
+        closeBtn.addEventListener('click', () => {
+            successToast.remove();
+        });
     }
 
     // Leave the current game
@@ -1276,16 +1655,43 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize game cards from static data
     function initializeGameCards() {
-        // Make a copy of the static cards and shuffle them
+        // Use a consistent seed based on the room code for both players
+        const seedNumber = currentRoomCode.split('').reduce((acc, char) => {
+            return acc + char.charCodeAt(0);
+        }, 0);
+        
+        logMessage(`Using seed ${seedNumber} for card shuffling`, 'info');
+        
+        // Make a copy of the static cards
         gameState.gameCards = [...STATIC_CARDS];
-        shuffleArray(gameState.gameCards);
+        
+        // Use deterministic shuffle based on room code so both players see same order
+        deterministicShuffle(gameState.gameCards, seedNumber);
         
         // Limit to the number of rounds we want to play
         gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
         gameState.currentCardIndex = -1;
+        
+        logMessage(`Initialized ${gameState.gameCards.length} game cards`, 'info');
     }
     
-    // Shuffle an array using Fisher-Yates algorithm
+    // Deterministic shuffle using a seed value
+    function deterministicShuffle(array, seed) {
+        // Simple deterministic pseudo-random number generator
+        const random = (max) => {
+            seed = (seed * 9301 + 49297) % 233280;
+            return (seed / 233280) * max;
+        };
+        
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(random(i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        
+        return array;
+    }
+    
+    // Regular shuffle using Fisher-Yates algorithm (kept for compatibility)
     function shuffleArray(array) {
         for (let i = array.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -1294,7 +1700,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return array;
     }
 
-    // Start the next round locally
+    // Start the next round
     function startNextRound() {
         // Move to next card
         gameState.currentCardIndex++;
@@ -1318,9 +1724,20 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.game.cardQuestion.textContent = currentCard.front;
         elements.game.answerFeedback.style.display = 'none';
         
-        // Create option buttons
+        // Create option buttons (using deterministic shuffle with same seed for consistency)
         elements.game.optionsContainer.innerHTML = '';
-        shuffleArray([...currentCard.options]).forEach((option, index) => {
+        
+        // Get a seed for this specific card based on room code and round number
+        const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
+            return acc + char.charCodeAt(0);
+        }, 0) + gameState.roundNumber * 100;
+        
+        // Create a copy of options to shuffle so both players see same order
+        const shuffledOptions = [...currentCard.options];
+        deterministicShuffle(shuffledOptions, optionsSeed);
+        
+        // Create option buttons with deterministically shuffled options
+        shuffledOptions.forEach((option, index) => {
             const optionCol = document.createElement('div');
             optionCol.className = 'col-md-6';
             
@@ -1335,28 +1752,40 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.game.optionsContainer.appendChild(optionCol);
         });
         
-        // Notify the other player that we've moved to the next round
-        if (stompClient && stompClient.connected) {
-            stompClient.send('/app/game.nextRound', { roomCode: currentRoomCode }, JSON.stringify({
-                type: 'NEXT_ROUND',
-                roomCode: currentRoomCode,
-                roundNumber: gameState.roundNumber
-            }));
-        }
+        // Send round synchronization message to ensure both players are on the same round
+        sendRoundSyncMessage();
         
-        logMessage(`Round ${gameState.roundNumber} started`, 'info');
+        logMessage(`Round ${gameState.roundNumber} started with card: ${currentCard.front}`, 'info');
     }
     
-    // Handle next round message from the other player
-    function handleNextRound(message) {
-        // If we're already on this round, ignore
-        if (message.roundNumber === gameState.roundNumber) {
-            return;
-        }
-        
-        // If we're behind, catch up
-        if (message.roundNumber > gameState.roundNumber) {
-            startNextRound();
+    // Send a round synchronization message to ensure both players are on the same round
+    function sendRoundSyncMessage() {
+        if (stompClient && stompClient.connected) {
+            const roundSyncData = {
+                roomCode: currentRoomCode,
+                roundNumber: gameState.roundNumber,
+                hostScore: gameState.hostScore,
+                guestScore: gameState.guestScore,
+                currentCardIndex: gameState.currentCardIndex,
+                cardFront: gameState.gameCards[gameState.currentCardIndex].front
+            };
+            
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                { 
+                    firebaseUid: firebaseUid,
+                    roomCode: currentRoomCode 
+                }, 
+                JSON.stringify({
+                    type: 'ROUND_SYNC',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now(),
+                    syncData: roundSyncData
+                })
+            );
+            
+            logMessage(`Sent round sync message for round ${gameState.roundNumber}`, 'info');
         }
     }
 
@@ -1567,17 +1996,94 @@ document.addEventListener('DOMContentLoaded', function() {
     function handlePlayerLeft(message) {
         logMessage(`${message.senderUsername} left the room`, 'info');
         
-        // If we're in a game, return to lobby
-        if (elements.sections.game.classList.contains('active')) {
-            showSection('lobby');
+        const isHostLeft = message.isHost === true;
+        const isHostMessage = message.isHost === true && message.senderUsername !== playerUsername;
+        const isGuestMessage = !message.isHost && message.senderUsername !== playerUsername;
+        
+        // Show a notification that the other player left
+        const leftNotification = document.createElement('div');
+        leftNotification.id = 'player-left-notification';
+        leftNotification.className = 'alert alert-warning mt-3';
+        leftNotification.innerHTML = `<strong>${message.senderUsername}</strong> has left the room!`;
+        
+        // Add notification to appropriate container
+        if (isHost) {
+            elements.create.roomInfo.appendChild(leftNotification);
+            
+            // If we're host, remove the guest from our list
+            if (isGuestMessage) {
+                const guestItems = Array.from(elements.create.playersList.children);
+                guestItems.forEach(item => {
+                    if (item.textContent.includes(message.senderUsername)) {
+                        item.remove();
+                        logMessage(`Removed ${message.senderUsername} from host player list`, 'info');
+                    }
+                });
+                
+                // Disable start button since guest left
+                elements.create.startGameBtn.disabled = true;
+            }
+        } else {
+            elements.join.joinedRoomInfo.appendChild(leftNotification);
+            
+            // If we're guest and host left, show special message
+            if (isHostMessage) {
+                leftNotification.className = 'alert alert-danger mt-3';
+                leftNotification.innerHTML = `<strong>The host ${message.senderUsername} has left the room!</strong><br>You'll need to join another room.`;
+                
+                // Remove host from player list
+                const hostItems = Array.from(elements.join.joinedPlayersList.children);
+                hostItems.forEach(item => {
+                    if (item.textContent.includes('Host')) {
+                        item.remove();
+                        logMessage('Removed host from guest player list', 'info');
+                    }
+                });
+                
+                // Schedule auto return to lobby form
+                setTimeout(() => {
+                    leaveRoom(false);
+                }, 5000);
+            }
         }
         
-        // Update players list
-        updatePlayersList();
+        // Auto-remove notification after 5 seconds
+        setTimeout(() => {
+            const notification = document.getElementById('player-left-notification');
+            if (notification) {
+                notification.remove();
+            }
+        }, 5000);
         
-        // Disable start button if host
-        if (isHost) {
-            elements.create.startGameBtn.disabled = true;
+        // If we're in a game, handle differently
+        if (elements.sections.game.classList.contains('active')) {
+            // If opponent left during game
+            displayError(`${message.senderUsername} left the game.`);
+            
+            // Return to lobby after a short delay
+            setTimeout(() => {
+                showSection('lobby');
+                
+                // Show appropriate message
+                const gameEndedNotification = document.createElement('div');
+                gameEndedNotification.id = 'game-ended-notification';
+                gameEndedNotification.className = 'alert alert-danger mt-3';
+                gameEndedNotification.innerHTML = `<strong>Game ended:</strong> ${message.senderUsername} left during the game!`;
+                
+                if (isHost) {
+                    elements.create.roomInfo.appendChild(gameEndedNotification);
+                } else {
+                    elements.join.joinedRoomInfo.appendChild(gameEndedNotification);
+                }
+                
+                // Remove notification after a delay
+                setTimeout(() => {
+                    const notification = document.getElementById('game-ended-notification');
+                    if (notification) {
+                        notification.remove();
+                    }
+                }, 5000);
+            }, 2000);
         }
     }
 
