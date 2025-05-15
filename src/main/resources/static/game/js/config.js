@@ -31,9 +31,24 @@ const CONFIG = {
     GAME: {
         ROUND_TRANSITION_DELAY: 2000, // milliseconds
         DEFAULT_ROUNDS: 10,
-        ANSWER_TIMEOUT: 20 // seconds
+        ANSWER_TIMEOUT: 20, // seconds
+        
+        // Explicit maximum player count for clarity
+        MAX_PLAYERS_PER_ROOM: 2
     },
     
     // Debug settings
-    DEBUG: true
+    DEBUG: true,
+    
+    // Reliability settings
+    RELIABILITY: {
+        // Add retry settings with reasonable defaults
+        MAX_RECONNECT_ATTEMPTS: 3,
+        RECONNECT_DELAY_MS: 2000,
+        MESSAGE_TIMEOUT_MS: 5000,
+        JOIN_TIMEOUT_MS: 5000,
+        
+        // Flag for extra diagnostic logging
+        VERBOSE_LOGGING: true
+    }
 };
