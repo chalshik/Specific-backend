@@ -92,6 +92,38 @@ public class GameService {
     }
 
     /**
+     * Join an existing room as a guest with a specific user
+     * 
+     * @param roomCode The code of the room to join
+     * @param user The user who will join the room
+     * @return The joined room, or null if room not found or full
+     */
+    public GameRoom joinRoomWithUser(String roomCode, User user) {
+        GameRoom room = activeRooms.get(roomCode);
+        if (room == null) return null;
+        
+        // Prevent joining if already in room
+        if (room.isPlayerInRoom(user)) {
+            return room;
+        }
+        
+        // Prevent joining if room is full
+        if (room.isRoomFull()) {
+            return null;
+        }
+        
+        // Join as guest
+        room.setGuest(user);
+        
+        // Get user's cards for the game
+        List<Card> userCards = cardService.getUserCards(user);
+        room.setGuestCards(userCards);
+        
+        room.setLastActivityTimestamp(System.currentTimeMillis());
+        return room;
+    }
+
+    /**
      * Get a room by its code
      */
     public GameRoom getRoom(String roomCode) {

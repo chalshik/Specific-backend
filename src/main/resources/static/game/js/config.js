@@ -3,16 +3,16 @@
  */
 const CONFIG = {
     // Backend API URL - Change this to your actual backend URL
-    API_URL: 'https://specific-backend.onrender.com',
+    API_URL: '/api',
     
     // Alternative URLs if the main one doesn't work
-    ALT_API_URL: 'http://localhost:8081',
+    ALT_API_URL: '',  // Empty string means same domain, different path
     
     // Game website URL - Access the game through this URL on your server
     GAME_URL: '/game',
     
     // WebSocket endpoint
-    WS_ENDPOINT: '/ws-game',
+    WS_ENDPOINT: '/ws',
     
     // WebSocket topics and queues
     SOCKET: {
@@ -31,7 +31,8 @@ const CONFIG = {
     GAME: {
         DEFAULT_ROUNDS: 10,
         ANSWER_TIMEOUT: 20, // seconds
-        ROUND_TRANSITION_DELAY: 2000 // milliseconds
+        ROUND_TRANSITION_DELAY: 3000, // 3 seconds between rounds
+        MAX_ROUNDS: 10
     },
     
     // Debug mode - set to true to enable console logs
