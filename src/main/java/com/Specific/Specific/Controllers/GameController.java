@@ -73,7 +73,60 @@ public class GameController {
      * WebSocket endpoint to handle joining a room
      */
     @MessageMapping("/game.join")
-    public void joinRoom(@Payload GameMessage message) {
+    public void joinRoom(@Payload GameMessage message, SimpMessageHeaderAccessor headerAccessor) {
+        // Get current user from either message or security context
+        User user;
+        String firebaseUid = headerAccessor.getFirstNativeHeader("firebaseUid");
+        String username = headerAccessor.getFirstNativeHeader("username");
+        
+        // For debugging purposes
+        log.info("Join request received: roomCode={}, senderId={}, senderUsername={}, headers firebaseUid={}, username={}", 
+            message.getRoomCode(), message.getSenderId(), message.getSenderUsername(), firebaseUid, username);
+        
+        try {
+            // Try to get user from security context first
+            user = securityUtils.getCurrentUser();
+            
+            // If that fails, try to find by Firebase UID
+            if (user == null && firebaseUid != null && !firebaseUid.isEmpty()) {
+                user = userService.findUserByFirebaseUid(firebaseUid);
+            }
+            
+            // If we still don't have a user, create a temporary one
+            if (user == null) {
+                // Create a temporary user with the Firebase UID or a random ID if not available
+                String userId = firebaseUid != null ? firebaseUid : "temp_" + System.currentTimeMillis();
+                String displayName = message.getSenderUsername() != null ? 
+                    message.getSenderUsername() : 
+                    (username != null ? username : "Guest_" + userId.substring(0, 5));
+                    
+                user = new User();
+                user.setFirebaseUid(userId);
+                user.setUsername(displayName);
+                log.info("Created temporary user: {}", displayName);
+            }
+        } catch (Exception e) {
+            log.error("Error getting user: {}", e.getMessage());
+            // Create a temporary user if there's an error
+            String userId = "temp_" + System.currentTimeMillis();
+            String displayName = message.getSenderUsername() != null ? 
+                message.getSenderUsername() : "Guest_" + userId.substring(0, 5);
+                
+            user = new User();
+            user.setFirebaseUid(userId);
+            user.setUsername(displayName);
+            log.info("Created fallback temporary user: {}", displayName);
+        }
+        
+        // Set user details in message if missing
+        if (message.getSenderId() == null) {
+            message.setSenderId(user.getId());
+        }
+        
+        if (message.getSenderUsername() == null || message.getSenderUsername().isEmpty()) {
+            message.setSenderUsername(user.getUsername());
+        }
+        
         GameRoom room = gameService.joinRoom(message.getRoomCode());
         
         if (room == null) {
@@ -81,16 +134,25 @@ public class GameController {
             return;
         }
         
+        log.info("User {} joined room {}", user.getUsername(), room.getRoomCode());
+        
         // Notify room about the new player
         GameMessage joinedMessage = new GameMessage();
         joinedMessage.setType(MessageType.ROOM_JOINED);
         joinedMessage.setRoomCode(room.getRoomCode());
-        joinedMessage.setSenderId(message.getSenderId());
+        joinedMessage.setSenderId(user.getId());
         joinedMessage.setSenderUsername(message.getSenderUsername());
         joinedMessage.setContent(message.getSenderUsername() + " joined the room");
         
         // Send to everyone in the room
         sendMessageToRoom(room.getRoomCode(), joinedMessage);
+        
+        // Also send directly to the user who joined
+        messagingTemplate.convertAndSendToUser(
+            message.getSenderUsername(),
+            PERSONAL_QUEUE,
+            joinedMessage
+        );
     }
 
     /**
