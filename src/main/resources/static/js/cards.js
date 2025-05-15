@@ -62,5 +62,20 @@ const STATIC_CARDS = [
         front: "Which bird can't fly?",
         back: "Penguin",
         options: ["Penguin", "Eagle", "Hawk", "Sparrow"]
+    },
+    {
+        front: "Which of these is not a primary color?",
+        back: "Green",
+        options: ["Red", "Blue", "Yellow", "Green"]
+    },
+    {
+        front: "Which planet is known as the Red Planet?",
+        back: "Mars",
+        options: ["Venus", "Jupiter", "Mars", "Saturn"]
+    },
+    {
+        front: "What is the smallest prime number?",
+        back: "2",
+        options: ["0", "1", "2", "3"]
     }
 ];
