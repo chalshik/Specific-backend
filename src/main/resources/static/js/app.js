@@ -1414,80 +1414,141 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingIndicator.innerHTML = '<span class="visually-hidden">Loading...</span>';
         elements.create.startGameBtn.parentNode.appendChild(loadingIndicator);
         
-        // Send multiple start game messages for redundancy using different channels
+        // IMMEDIATE ACTION: Initialize static game cards regardless of server response
+        initializeGameCards();
         
-        // 1. Send via application endpoint
-        stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, 
-            {
-                firebaseUid: firebaseUid,
-                roomCode: currentRoomCode
-            }, 
-            JSON.stringify({
-                type: 'GAME_STARTED',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
+        try {
+            // Send multiple start game messages for redundancy using different channels
+            
+            // 1. Send via application endpoint
+            stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, 
+                {
+                    firebaseUid: firebaseUid,
+                    roomCode: currentRoomCode
+                }, 
+                JSON.stringify({
+                    type: 'GAME_STARTED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now()
+                })
+            );
+            
+            // 2. Send directly to room topic for redundancy
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                {
+                    firebaseUid: firebaseUid,
+                    roomCode: currentRoomCode
+                }, 
+                JSON.stringify({
+                    type: 'GAME_STARTED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now()
+                })
+            );
+            
+            // 3. Try to start game via REST call as well (triple redundancy)
+            fetch(`${CONFIG.API_URL}/api/game/room/${currentRoomCode}/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Firebase-Uid': firebaseUid
+                },
+                body: JSON.stringify({
+                    roomCode: currentRoomCode,
+                    hostId: firebaseUid,
+                    hostUsername: playerUsername
+                })
             })
-        );
-        
-        // 2. Send directly to room topic for redundancy
-        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-            {
-                firebaseUid: firebaseUid,
-                roomCode: currentRoomCode
-            }, 
-            JSON.stringify({
-                type: 'GAME_STARTED',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
+            .then(response => {
+                if (response.ok) {
+                    logMessage('REST game start successful', 'success');
+                } else {
+                    logMessage(`REST game start failed with status: ${response.status}`, 'warning');
+                }
             })
-        );
-        
-        // 3. Try to start game via REST call as well (triple redundancy)
-        fetch(`${CONFIG.API_URL}/api/game/room/${currentRoomCode}/start`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Firebase-Uid': firebaseUid
-            },
-            body: JSON.stringify({
-                roomCode: currentRoomCode,
-                hostId: firebaseUid,
-                hostUsername: playerUsername
-            })
-        })
-        .then(response => {
-            if (response.ok) {
-                logMessage('REST game start successful', 'success');
-                return response.json();
-            } else {
-                logMessage(`REST game start failed with status: ${response.status}`, 'warning');
-                throw new Error('Failed to start game via REST');
-            }
-        })
-        .then(data => {
-            logMessage(`Game start REST response: ${JSON.stringify(data)}`, 'info');
-            // No additional handling needed since WebSocket handles the game start
-        })
-        .catch(error => {
-            // Errors here aren't critical since we have WebSocket-based retries
-            logMessage(`Game start REST error: ${error.message}`, 'warning');
-        });
-        
-        // Set a timeout to handle no acknowledgment
-        window.gameStartTimeout = setTimeout(() => {
-            logMessage('No game start acknowledgment received, triggering local game start', 'warning');
-            handleGameStarted({
-                type: 'GAME_STARTED',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
+            .catch(error => {
+                logMessage(`Game start REST error: ${error.message}`, 'warning');
             });
-        }, 5000); // 5 second timeout
+        } catch (e) {
+            logMessage(`Error sending game start messages: ${e.message}`, 'error');
+        }
+        
+        // ALWAYS START THE GAME LOCALLY - don't wait for server response
+        // This ensures the game starts even if the server is having issues
+        setTimeout(() => {
+            forceGameStart();
+        }, 500);
+        
+        // Clear any existing timeouts
+        if (window.gameStartTimeout) {
+            clearTimeout(window.gameStartTimeout);
+        }
+        
+        // Set a shorter timeout as backup
+        window.gameStartTimeout = setTimeout(() => {
+            logMessage('No game start acknowledgment received, forcing local game start', 'warning');
+            forceGameStart();
+        }, 2000); // Shorter timeout (2 seconds)
+    }
+    
+    // Force the game to start locally regardless of server state
+    function forceGameStart() {
+        // Remove any loading indicators
+        const loadingIndicator = document.getElementById('start-game-loading');
+        if (loadingIndicator) {
+            loadingIndicator.remove();
+        }
+        
+        // Clear any existing game start timeout
+        if (window.gameStartTimeout) {
+            clearTimeout(window.gameStartTimeout);
+            window.gameStartTimeout = null;
+        }
+        
+        // Only start if we haven't already moved to the game section
+        if (!elements.sections.game.classList.contains('active')) {
+            logMessage('Forcing local game start', 'warning');
+            
+            // Reset game state with static cards
+            gameState = {
+                roundNumber: 0,
+                hostScore: 0,
+                guestScore: 0,
+                yourScore: 0,
+                opponentScore: 0,
+                selectedOption: null,
+                hasAnswered: false,
+                opponentAnswered: false,
+                gameCards: [...STATIC_CARDS], // Use static cards
+                currentCardIndex: -1,
+                totalRounds: Math.min(10, STATIC_CARDS.length) // Use either 10 or however many cards we have
+            };
+            
+            // Ensure we have deterministically shuffled cards with room code as seed
+            const seed = currentRoomCode.split('').reduce((acc, char) => {
+                return acc + char.charCodeAt(0);
+            }, 0);
+            
+            deterministicShuffle(gameState.gameCards, seed);
+            logMessage(`Shuffled ${gameState.gameCards.length} cards with seed ${seed}`, 'info');
+            
+            // Update UI
+            elements.game.yourScore.textContent = 0;
+            elements.game.opponentScore.textContent = 0;
+            
+            // Switch to game view
+            showSection('game');
+            
+            // Show toast notification
+            showSuccessToast('Game started!', 'The game has begun. Good luck!');
+            
+            // Start first round immediately
+            setTimeout(startNextRound, 500);
+        }
     }
     
     // Handle game start event
@@ -1512,7 +1573,7 @@ document.addEventListener('DOMContentLoaded', function() {
             loadingIndicator.remove();
         }
         
-        // Reset game state
+        // Reset game state with static cards
         gameState = {
             roundNumber: 0,
             hostScore: 0,
@@ -1522,9 +1583,9 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedOption: null,
             hasAnswered: false,
             opponentAnswered: false,
-            gameCards: [...STATIC_CARDS], // Use static cards instead of CONFIG.GAME.CARDS
+            gameCards: [...STATIC_CARDS], // Use static cards directly
             currentCardIndex: -1,
-            totalRounds: 10 // Hardcode total rounds or use STATIC_CARDS.length
+            totalRounds: Math.min(10, STATIC_CARDS.length) // Use max 10 rounds
         };
         
         // Send acknowledgment if we're a guest
@@ -1538,24 +1599,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 0);
         
         deterministicShuffle(gameState.gameCards, seed);
-        
-        // Limit number of cards to total rounds
-        if (gameState.gameCards.length > gameState.totalRounds) {
-            gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
-        }
+        logMessage(`Shuffled ${gameState.gameCards.length} cards with seed ${seed}`, 'success');
         
         // Update UI
-        elements.game.yourScore.textContent = 0;
-        elements.game.opponentScore.textContent = 0;
-        
-        // Update player labels based on host status
-        if (isHost) {
-            elements.game.yourLabel.textContent = 'Host:';
-            elements.game.opponentLabel.textContent = 'Guest:';
-        } else {
-            elements.game.yourLabel.textContent = 'Guest:';
-            elements.game.opponentLabel.textContent = 'Host:';
-        }
+        elements.game.yourScore.textContent = '0';
+        elements.game.opponentScore.textContent = '0';
         
         // Show game section
         showSection('game');
@@ -1563,10 +1611,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show a toast notification
         showSuccessToast('Game started!', 'The game has begun. Good luck!');
         
-        // Start first round after a short delay to ensure both players are in game view
-        setTimeout(() => {
-            startNextRound();
-        }, 1000);
+        // Start first round immediately
+        setTimeout(startNextRound, 500);
     }
     
     // Send acknowledgment that guest received game start message
@@ -1616,24 +1662,63 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize game cards from static data
     function initializeGameCards() {
-        // Use a consistent seed based on the room code for both players
-        const seedNumber = currentRoomCode.split('').reduce((acc, char) => {
-            return acc + char.charCodeAt(0);
-        }, 0);
-        
-        logMessage(`Using seed ${seedNumber} for card shuffling`, 'info');
-        
-        // Make a copy of the static cards
-        gameState.gameCards = [...STATIC_CARDS];
-        
-        // Use deterministic shuffle based on room code so both players see same order
-        deterministicShuffle(gameState.gameCards, seedNumber);
-        
-        // Limit to the number of rounds we want to play
-        gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
-        gameState.currentCardIndex = -1;
-        
-        logMessage(`Initialized ${gameState.gameCards.length} game cards`, 'info');
+        try {
+            // Make sure STATIC_CARDS is defined and not empty
+            if (!STATIC_CARDS || STATIC_CARDS.length === 0) {
+                logMessage('ERROR: STATIC_CARDS is not defined or empty', 'error');
+                // Fallback to hardcoded cards if STATIC_CARDS is not available
+                gameState.gameCards = [
+                    {
+                        front: "What is the capital of France?",
+                        back: "Paris",
+                        options: ["Paris", "London", "Berlin", "Madrid"]
+                    },
+                    {
+                        front: "What is 2 + 2?",
+                        back: "4",
+                        options: ["3", "4", "5", "6"]
+                    },
+                    {
+                        front: "Which planet is closest to the sun?",
+                        back: "Mercury",
+                        options: ["Venus", "Earth", "Mars", "Mercury"]
+                    }
+                ];
+                logMessage('Using fallback cards', 'warning');
+            } else {
+                // Use the static cards from cards.js
+                gameState.gameCards = [...STATIC_CARDS];
+                logMessage(`Loaded ${gameState.gameCards.length} cards from STATIC_CARDS`, 'success');
+            }
+            
+            // Use a simple seed if room code is not available
+            let seedNumber = 12345;
+            
+            if (currentRoomCode) {
+                // Use a consistent seed based on the room code for both players
+                seedNumber = currentRoomCode.split('').reduce((acc, char) => {
+                    return acc + char.charCodeAt(0);
+                }, 0);
+            }
+            
+            logMessage(`Using seed ${seedNumber} for card shuffling`, 'info');
+            
+            // Use deterministic shuffle based on seed so all players see same order
+            deterministicShuffle(gameState.gameCards, seedNumber);
+            
+            // Limit to the number of rounds we want to play
+            if (gameState.gameCards.length > 10) {
+                gameState.gameCards = gameState.gameCards.slice(0, 10);
+            }
+            gameState.totalRounds = gameState.gameCards.length;
+            gameState.currentCardIndex = -1;
+            
+            logMessage(`Initialized ${gameState.gameCards.length} game cards for play`, 'success');
+            return true;
+        } catch (error) {
+            logMessage(`Error initializing game cards: ${error.message}`, 'error');
+            return false;
+        }
     }
     
     // Deterministic shuffle using a seed value
@@ -1663,60 +1748,93 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Start the next round
     function startNextRound() {
-        // Move to next card
-        gameState.currentCardIndex++;
-        gameState.roundNumber++;
-        gameState.hasAnswered = false;
-        gameState.opponentAnswered = false;
-        gameState.selectedOption = null;
-        
-        // Check if game is over
-        if (gameState.currentCardIndex >= gameState.gameCards.length) {
-            endGame();
-            return;
+        try {
+            // Move to next card
+            gameState.currentCardIndex++;
+            gameState.roundNumber++;
+            gameState.hasAnswered = false;
+            gameState.opponentAnswered = false;
+            gameState.selectedOption = null;
+            
+            logMessage(`Starting round ${gameState.roundNumber}`, 'info');
+            
+            // Check if game is over
+            if (gameState.currentCardIndex >= gameState.gameCards.length || gameState.roundNumber > gameState.totalRounds) {
+                endGame();
+                return;
+            }
+            
+            const currentCard = gameState.gameCards[gameState.currentCardIndex];
+            if (!currentCard) {
+                logMessage('Invalid card index, ending game', 'error');
+                endGame();
+                return;
+            }
+            
+            // Update UI
+            elements.game.roundNumber.textContent = gameState.roundNumber;
+            elements.game.yourScore.textContent = gameState.yourScore;
+            elements.game.opponentScore.textContent = gameState.opponentScore;
+            elements.game.cardQuestion.textContent = currentCard.front;
+            elements.game.answerFeedback.style.display = 'none';
+            
+            // Create option buttons (using deterministic shuffle with same seed for consistency)
+            elements.game.optionsContainer.innerHTML = '';
+            
+            // Get a seed for this specific card based on room code and round number
+            const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
+                return acc + char.charCodeAt(0);
+            }, 0) + gameState.roundNumber * 100;
+            
+            // Create a copy of options to shuffle so both players see same order
+            const shuffledOptions = [...currentCard.options];
+            deterministicShuffle(shuffledOptions, optionsSeed);
+            
+            // Create option buttons with deterministically shuffled options
+            shuffledOptions.forEach((option, index) => {
+                const optionCol = document.createElement('div');
+                optionCol.className = 'col-md-6';
+                
+                const optionBtn = document.createElement('button');
+                optionBtn.className = 'btn option-btn';
+                optionBtn.textContent = option;
+                optionBtn.dataset.index = index;
+                optionBtn.dataset.value = option;
+                optionBtn.addEventListener('click', () => submitAnswerLocally(option));
+                
+                optionCol.appendChild(optionBtn);
+                elements.game.optionsContainer.appendChild(optionCol);
+            });
+            
+            // Send round synchronization message locally
+            if (isHost) {
+                sendRoundSyncMessage();
+            }
+            
+            // Show toast notification for new round
+            const roundToast = document.createElement('div');
+            roundToast.className = 'toast align-items-center text-white bg-primary';
+            roundToast.role = 'alert';
+            roundToast.innerHTML = `
+                <div class="toast-body">
+                    <strong>Round ${gameState.roundNumber}</strong>
+                </div>
+            `;
+            document.body.appendChild(roundToast);
+            const toast = new bootstrap.Toast(roundToast, { delay: 1500 });
+            toast.show();
+            
+            setTimeout(() => {
+                if (roundToast) {
+                    roundToast.remove();
+                }
+            }, 1500);
+            
+            logMessage(`Round ${gameState.roundNumber} started with card: ${currentCard.front}`, 'info');
+        } catch (error) {
+            logMessage(`Error starting next round: ${error.message}`, 'error');
+            showSuccessToast('Error', 'There was a problem starting the next round. Try again.', 3);
         }
-        
-        const currentCard = gameState.gameCards[gameState.currentCardIndex];
-        
-        // Update UI
-        elements.game.roundNumber.textContent = gameState.roundNumber;
-        elements.game.yourScore.textContent = gameState.yourScore;
-        elements.game.opponentScore.textContent = gameState.opponentScore;
-        elements.game.cardQuestion.textContent = currentCard.front;
-        elements.game.answerFeedback.style.display = 'none';
-        
-        // Create option buttons (using deterministic shuffle with same seed for consistency)
-        elements.game.optionsContainer.innerHTML = '';
-        
-        // Get a seed for this specific card based on room code and round number
-        const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
-            return acc + char.charCodeAt(0);
-        }, 0) + gameState.roundNumber * 100;
-        
-        // Create a copy of options to shuffle so both players see same order
-        const shuffledOptions = [...currentCard.options];
-        deterministicShuffle(shuffledOptions, optionsSeed);
-        
-        // Create option buttons with deterministically shuffled options
-        shuffledOptions.forEach((option, index) => {
-            const optionCol = document.createElement('div');
-            optionCol.className = 'col-md-6';
-            
-            const optionBtn = document.createElement('button');
-            optionBtn.className = 'btn option-btn';
-            optionBtn.textContent = option;
-            optionBtn.dataset.index = index;
-            optionBtn.dataset.value = option;
-            optionBtn.addEventListener('click', () => submitAnswerLocally(option));
-            
-            optionCol.appendChild(optionBtn);
-            elements.game.optionsContainer.appendChild(optionCol);
-        });
-        
-        // Send round synchronization message to ensure both players are on the same round
-        sendRoundSyncMessage();
-        
-        logMessage(`Round ${gameState.roundNumber} started with card: ${currentCard.front}`, 'info');
     }
     
     // Send a round synchronization message to ensure both players are on the same round
@@ -1863,46 +1981,97 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // End the game locally
     function endGame() {
-        // Determine the winner
-        let winnerUsername;
-        let isWinner = false;
-        
-        if (gameState.hostScore > gameState.guestScore) {
-            winnerUsername = isHost ? playerUsername : 'Opponent';
-            isWinner = isHost;
-        } else if (gameState.guestScore > gameState.hostScore) {
-            winnerUsername = !isHost ? playerUsername : 'Opponent';
-            isWinner = !isHost;
-        } else {
-            winnerUsername = 'Draw';
-        }
-        
-        // Create game result
-        const gameResult = {
-            roomCode: currentRoomCode,
-            hostUsername: isHost ? playerUsername : 'Opponent',
-            guestUsername: !isHost ? playerUsername : 'Opponent',
-            hostScore: gameState.hostScore,
-            guestScore: gameState.guestScore,
-            winnerUsername: winnerUsername
-        };
-        
-        // Show game over message
-        handleGameOver({
-            type: 'GAME_OVER',
-            gameResult: gameResult
-        });
-        
-        // Notify the other player
-        if (stompClient && stompClient.connected) {
-            stompClient.send('/app/game.endGame', 
-                { roomCode: currentRoomCode }, 
-                JSON.stringify({
-                    type: 'GAME_OVER',
-                    roomCode: currentRoomCode,
-                    gameResult: gameResult
-                })
-            );
+        try {
+            logMessage('Ending game and showing results', 'info');
+            
+            // Determine the winner
+            let winnerUsername;
+            let isWinner = false;
+            
+            if (gameState.hostScore > gameState.guestScore) {
+                winnerUsername = isHost ? playerUsername : 'Opponent';
+                isWinner = isHost;
+            } else if (gameState.guestScore > gameState.hostScore) {
+                winnerUsername = !isHost ? playerUsername : 'Opponent';
+                isWinner = !isHost;
+            } else {
+                winnerUsername = 'Draw';
+            }
+            
+            // Create game result
+            const gameResult = {
+                roomCode: currentRoomCode,
+                hostUsername: isHost ? playerUsername : 'Opponent',
+                guestUsername: !isHost ? playerUsername : 'Opponent',
+                hostScore: gameState.hostScore,
+                guestScore: gameState.guestScore,
+                winnerUsername: winnerUsername
+            };
+            
+            // Update UI based on result
+            if (isHost) {
+                elements.results.player1Name.textContent = gameResult.hostUsername + ' (You)';
+                elements.results.player1Score.textContent = gameResult.hostScore;
+                elements.results.player2Name.textContent = gameResult.guestUsername;
+                elements.results.player2Score.textContent = gameResult.guestScore;
+                
+                // Determine if we won
+                if (gameResult.hostScore > gameResult.guestScore) {
+                    elements.results.winnerText.textContent = 'You Won!';
+                    elements.results.winnerDisplay.className = 'alert alert-success mb-4';
+                } else if (gameResult.hostScore < gameResult.guestScore) {
+                    elements.results.winnerText.textContent = 'You Lost!';
+                    elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
+                } else {
+                    elements.results.winnerText.textContent = 'It\'s a Draw!';
+                    elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
+                }
+            } else {
+                elements.results.player1Name.textContent = gameResult.hostUsername;
+                elements.results.player1Score.textContent = gameResult.hostScore;
+                elements.results.player2Name.textContent = gameResult.guestUsername + ' (You)';
+                elements.results.player2Score.textContent = gameResult.guestScore;
+                
+                // Determine if we won
+                if (gameResult.guestScore > gameResult.hostScore) {
+                    elements.results.winnerText.textContent = 'You Won!';
+                    elements.results.winnerDisplay.className = 'alert alert-success mb-4';
+                } else if (gameResult.guestScore < gameResult.hostScore) {
+                    elements.results.winnerText.textContent = 'You Lost!';
+                    elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
+                } else {
+                    elements.results.winnerText.textContent = 'It\'s a Draw!';
+                    elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
+                }
+            }
+            
+            // Show results section
+            showSection('results');
+            
+            // Show toast
+            showSuccessToast('Game Over', 'The game has ended! Check the results.', 5);
+            
+            logMessage('Game over', 'info');
+            
+            // Try to notify the other player, but don't depend on it
+            try {
+                if (stompClient && stompClient.connected) {
+                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                        { roomCode: currentRoomCode }, 
+                        JSON.stringify({
+                            type: 'GAME_OVER',
+                            roomCode: currentRoomCode,
+                            gameResult: gameResult
+                        })
+                    );
+                }
+            } catch (e) {
+                logMessage(`Could not send game over message: ${e.message}`, 'warning');
+            }
+        } catch (error) {
+            logMessage(`Error ending game: ${error.message}`, 'error');
+            // Fallback to showing the lobby
+            showSection('lobby');
         }
     }
 
@@ -2504,4 +2673,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Start the application
     init();
+
+    // DEBUG FUNCTION: Allow manually triggering game start from console
+    window.debugStartGame = function() {
+        logMessage('DEBUG: Manually triggering game start', 'warning');
+        
+        // Force initialization of game cards
+        initializeGameCards();
+        
+        // Force game start 
+        forceGameStart();
+        
+        return 'Game start triggered. Check console for details.';
+    };
+    
+    // DEBUG FUNCTION: Move to next round manually
+    window.debugNextRound = function() {
+        logMessage('DEBUG: Manually triggering next round', 'warning');
+        startNextRound();
+        return 'Next round triggered.';
+    };
+    
+    // DEBUG FUNCTION: End game manually
+    window.debugEndGame = function() {
+        logMessage('DEBUG: Manually ending game', 'warning');
+        endGame();
+        return 'Game ended manually.';
+    };
 });
