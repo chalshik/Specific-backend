@@ -1,54 +1,44 @@
 /**
- * Game Configuration
+ * Specific Card Game - Configuration
  */
 const CONFIG = {
-    // Backend API URL - Change this to your actual backend URL
-    API_URL: 'https://specific-backend.onrender.com',
+    // Debug mode (enables logging)
+    DEBUG: true,
     
-    // Alternative URLs if the main one doesn't work
-    ALT_API_URL: 'http://localhost:8081',
-    
-    // Game website URL - Access the game through this URL on your server
-    GAME_URL: '/game',
+    // API URLs
+    API_URL: window.location.protocol + '//' + window.location.host,
+    ALT_API_URL: window.location.protocol + '//' + window.location.host,
     
     // WebSocket endpoint
-    WS_ENDPOINT: '/ws-game',
+    WS_ENDPOINT: '/ws',
     
-    // WebSocket topics and queues
+    // Socket configurations
     SOCKET: {
+        // Queue for personal messages
         PERSONAL_QUEUE: '/user/queue/game',
+        
+        // Prefix for room topics
         ROOM_TOPIC_PREFIX: '/topic/game.room.',
+        
+        // Endpoints
         ENDPOINTS: {
             JOIN: '/app/game.join',
             START: '/app/game.start',
             SUBMIT_ANSWER: '/app/game.submitAnswer',
-            NEXT_ROUND: '/app/game.nextRound',
             LEAVE: '/app/game.leave'
         }
     },
     
     // Game settings
     GAME: {
-        ROUND_TRANSITION_DELAY: 2000, // milliseconds
-        DEFAULT_ROUNDS: 10,
-        ANSWER_TIMEOUT: 20, // seconds
-        
-        // Explicit maximum player count for clarity
-        MAX_PLAYERS_PER_ROOM: 2
+        ROUND_TRANSITION_DELAY: 2000,
+        TOTAL_ROUNDS: 10
     },
     
-    // Debug settings
-    DEBUG: true,
-    
-    // Reliability settings
+    // Reliability configurations
     RELIABILITY: {
-        // Add retry settings with reasonable defaults
-        MAX_RECONNECT_ATTEMPTS: 3,
-        RECONNECT_DELAY_MS: 2000,
-        MESSAGE_TIMEOUT_MS: 5000,
-        JOIN_TIMEOUT_MS: 5000,
-        
-        // Flag for extra diagnostic logging
-        VERBOSE_LOGGING: true
+        VERBOSE_LOGGING: true,
+        CONNECTION_RETRY_LIMIT: 3,
+        CONNECTION_RETRY_DELAY: 3000
     }
 };

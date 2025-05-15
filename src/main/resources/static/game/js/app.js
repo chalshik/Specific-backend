@@ -1,6 +1,71 @@
 /**
  * Specific Card Game - Main Application
  */
+
+// Define static game cards collection
+const STATIC_CARDS = [
+    {
+        front: "What is the capital of France?",
+        back: "Paris",
+        options: ["Paris", "London", "Berlin", "Madrid"]
+    },
+    {
+        front: "What is 2 + 2?",
+        back: "4",
+        options: ["3", "4", "5", "6"]
+    },
+    {
+        front: "Which planet is closest to the sun?",
+        back: "Mercury",
+        options: ["Venus", "Earth", "Mars", "Mercury"]
+    },
+    {
+        front: "What is the largest ocean?",
+        back: "Pacific Ocean",
+        options: ["Atlantic Ocean", "Indian Ocean", "Pacific Ocean", "Arctic Ocean"]
+    },
+    {
+        front: "Who wrote 'Romeo and Juliet'?",
+        back: "William Shakespeare",
+        options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"]
+    },
+    {
+        front: "What is the chemical symbol for gold?",
+        back: "Au",
+        options: ["Au", "Ag", "Fe", "Gd"]
+    },
+    {
+        front: "Which country has the largest population?",
+        back: "China",
+        options: ["India", "United States", "China", "Russia"]
+    },
+    {
+        front: "What is the tallest mountain in the world?",
+        back: "Mount Everest",
+        options: ["K2", "Mount Everest", "Kangchenjunga", "Lhotse"]
+    },
+    {
+        front: "Who painted the Mona Lisa?",
+        back: "Leonardo da Vinci",
+        options: ["Pablo Picasso", "Vincent van Gogh", "Leonardo da Vinci", "Michelangelo"]
+    },
+    {
+        front: "What is the largest organ in the human body?",
+        back: "Skin",
+        options: ["Liver", "Brain", "Skin", "Heart"]
+    },
+    {
+        front: "What is the hardest natural substance?",
+        back: "Diamond",
+        options: ["Steel", "Iron", "Diamond", "Platinum"]
+    },
+    {
+        front: "Which bird can't fly?",
+        back: "Penguin",
+        options: ["Penguin", "Eagle", "Hawk", "Sparrow"]
+    }
+];
+
 document.addEventListener('DOMContentLoaded', function() {
     // State variables
     let stompClient = null;
@@ -1443,11 +1508,11 @@ document.addEventListener('DOMContentLoaded', function() {
         );
         
         // 3. Try to start game via REST call as well (triple redundancy)
-        fetch(`${CONFIG.REST.ENDPOINTS.START_GAME}?roomCode=${currentRoomCode}`, {
+        fetch(`${CONFIG.API_URL}/api/game/room/${currentRoomCode}/start`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Firebase-UID': firebaseUid
+                'X-Firebase-Uid': firebaseUid
             },
             body: JSON.stringify({
                 roomCode: currentRoomCode,
@@ -1518,9 +1583,9 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedOption: null,
             hasAnswered: false,
             opponentAnswered: false,
-            gameCards: [...CONFIG.GAME.CARDS], // Make a copy of the cards
+            gameCards: [...STATIC_CARDS], // Use static cards instead of CONFIG.GAME.CARDS
             currentCardIndex: -1,
-            totalRounds: CONFIG.GAME.TOTAL_ROUNDS
+            totalRounds: 10 // Hardcode total rounds or use STATIC_CARDS.length
         };
         
         // Send acknowledgment if we're a guest
@@ -2231,6 +2296,82 @@ document.addEventListener('DOMContentLoaded', function() {
         updateConnectionStatus('disconnected');
         logMessage('Application initialized', 'info');
         addDiagnosticsButton();
+    }
+
+    // Display a success toast notification
+    function showSuccessToast(title, message) {
+        const successToast = document.createElement('div');
+        successToast.className = 'toast show bg-success text-white';
+        successToast.setAttribute('role', 'alert');
+        successToast.setAttribute('aria-live', 'assertive');
+        successToast.setAttribute('aria-atomic', 'true');
+        successToast.style.position = 'fixed';
+        successToast.style.bottom = '20px';
+        successToast.style.right = '20px';
+        successToast.style.minWidth = '250px';
+        successToast.style.zIndex = '1050';
+        
+        successToast.innerHTML = `
+            <div class="toast-header bg-success text-white">
+                <strong class="me-auto">${title}</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body">
+                ${message}
+            </div>
+        `;
+        
+        document.body.appendChild(successToast);
+        
+        // Automatically remove the toast after 3 seconds
+        setTimeout(() => {
+            successToast.remove();
+        }, 3000);
+        
+        // Add close button functionality
+        const closeBtn = successToast.querySelector('.btn-close');
+        closeBtn.addEventListener('click', () => {
+            successToast.remove();
+        });
+    }
+
+    // Display an error message
+    function displayError(message) {
+        const errorToast = document.createElement('div');
+        errorToast.className = 'toast show bg-danger text-white';
+        errorToast.setAttribute('role', 'alert');
+        errorToast.setAttribute('aria-live', 'assertive');
+        errorToast.setAttribute('aria-atomic', 'true');
+        errorToast.style.position = 'fixed';
+        errorToast.style.bottom = '20px';
+        errorToast.style.right = '20px';
+        errorToast.style.minWidth = '250px';
+        errorToast.style.zIndex = '1050';
+        
+        errorToast.innerHTML = `
+            <div class="toast-header bg-danger text-white">
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body">
+                ${message}
+            </div>
+        `;
+        
+        document.body.appendChild(errorToast);
+        
+        // Automatically remove the toast after 5 seconds
+        setTimeout(() => {
+            errorToast.remove();
+        }, 5000);
+        
+        // Add close button functionality
+        const closeBtn = errorToast.querySelector('.btn-close');
+        closeBtn.addEventListener('click', () => {
+            errorToast.remove();
+        });
+        
+        logMessage(`Error displayed: ${message}`, 'error');
     }
 
     // Start the application
