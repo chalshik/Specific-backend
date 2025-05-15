@@ -1,81 +1,83 @@
 /**
- * Static card data for the Specific Card Game
- * This eliminates the need to fetch cards from the server
+ * Static cards for the card game
  */
 const STATIC_CARDS = [
     {
-        front: "What is the capital of France?",
-        back: "Paris",
-        options: ["Paris", "London", "Berlin", "Madrid"]
+        question: "What is the capital of France?",
+        options: ["Paris", "London", "Berlin", "Madrid"],
+        correctOption: "Paris"
     },
     {
-        front: "What is 2 + 2?",
-        back: "4",
-        options: ["3", "4", "5", "6"]
+        question: "Which planet is known as the Red Planet?",
+        options: ["Venus", "Mars", "Jupiter", "Saturn"],
+        correctOption: "Mars"
     },
     {
-        front: "Which planet is closest to the sun?",
-        back: "Mercury",
-        options: ["Venus", "Earth", "Mars", "Mercury"]
+        question: "What is the largest ocean on Earth?",
+        options: ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean", "Pacific Ocean"],
+        correctOption: "Pacific Ocean"
     },
     {
-        front: "What is the largest ocean?",
-        back: "Pacific Ocean",
-        options: ["Atlantic Ocean", "Indian Ocean", "Pacific Ocean", "Arctic Ocean"]
+        question: "Who painted the Mona Lisa?",
+        options: ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Michelangelo"],
+        correctOption: "Leonardo da Vinci"
     },
     {
-        front: "Who wrote 'Romeo and Juliet'?",
-        back: "William Shakespeare",
-        options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"]
+        question: "What is the chemical symbol for gold?",
+        options: ["Go", "Gd", "Au", "Ag"],
+        correctOption: "Au"
     },
     {
-        front: "What is the chemical symbol for gold?",
-        back: "Au",
-        options: ["Au", "Ag", "Fe", "Gd"]
+        question: "Which country is home to the kangaroo?",
+        options: ["New Zealand", "South Africa", "Australia", "Brazil"],
+        correctOption: "Australia"
     },
     {
-        front: "Which country has the largest population?",
-        back: "China",
-        options: ["India", "United States", "China", "Russia"]
+        question: "What is the largest mammal in the world?",
+        options: ["Elephant", "Blue Whale", "Giraffe", "Hippopotamus"],
+        correctOption: "Blue Whale"
     },
     {
-        front: "What is the tallest mountain in the world?",
-        back: "Mount Everest",
-        options: ["K2", "Mount Everest", "Kangchenjunga", "Lhotse"]
+        question: "Who wrote 'Romeo and Juliet'?",
+        options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"],
+        correctOption: "William Shakespeare"
     },
     {
-        front: "Who painted the Mona Lisa?",
-        back: "Leonardo da Vinci",
-        options: ["Pablo Picasso", "Vincent van Gogh", "Leonardo da Vinci", "Michelangelo"]
+        question: "What is the smallest prime number?",
+        options: ["0", "1", "2", "3"],
+        correctOption: "2"
     },
     {
-        front: "What is the largest organ in the human body?",
-        back: "Skin",
-        options: ["Liver", "Brain", "Skin", "Heart"]
+        question: "Which gas do plants absorb from the atmosphere?",
+        options: ["Oxygen", "Carbon Dioxide", "Nitrogen", "Hydrogen"],
+        correctOption: "Carbon Dioxide"
     },
     {
-        front: "What is the hardest natural substance?",
-        back: "Diamond",
-        options: ["Steel", "Iron", "Diamond", "Platinum"]
+        question: "What is the capital of Japan?",
+        options: ["Beijing", "Seoul", "Tokyo", "Bangkok"],
+        correctOption: "Tokyo"
     },
     {
-        front: "Which bird can't fly?",
-        back: "Penguin",
-        options: ["Penguin", "Eagle", "Hawk", "Sparrow"]
+        question: "Who is known as the father of modern physics?",
+        options: ["Isaac Newton", "Albert Einstein", "Galileo Galilei", "Stephen Hawking"],
+        correctOption: "Albert Einstein"
     },
     {
-        front: "Which of these is not a primary color?",
-        back: "Green",
-        options: ["Red", "Blue", "Yellow", "Green"]
+        question: "What is the main ingredient in guacamole?",
+        options: ["Banana", "Avocado", "Green Pepper", "Lime"],
+        correctOption: "Avocado"
     },
     {
-        front: "Which planet is known as the Red Planet?",
-        back: "Mars",
-        options: ["Venus", "Jupiter", "Mars", "Saturn"]
+        question: "Which instrument has 88 keys?",
+        options: ["Guitar", "Violin", "Piano", "Flute"],
+        correctOption: "Piano"
     },
     {
-        front: "What is the smallest prime number?",
-        back: "2",
-        options: ["0", "1", "2", "3"]
+        question: "What is the tallest mountain in the world?",
+        options: ["K2", "Mount Everest", "Mount Kilimanjaro", "Denali"],
+        correctOption: "Mount Everest"
     }
 ];
+
+// Make available globally
+window.STATIC_CARDS = STATIC_CARDS;

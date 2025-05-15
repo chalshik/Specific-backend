@@ -1276,105 +1276,82 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Handle round synchronization message to ensure both players are in sync
+    // Handle round synchronization
     function handleRoundSync(message) {
-        const syncData = message.syncData;
-        
-        if (!syncData) {
-            logMessage('Received round sync message without sync data', 'warning');
-            return;
+        if (message.roomCode !== currentRoomCode) {
+            return; // Not for our room
         }
         
-        logMessage(`Received round sync for round ${syncData.roundNumber} (our round: ${gameState.roundNumber})`, 'info');
+        logMessage(`Received round sync for round ${message.roundNumber}`, 'info');
         
-        // If we're already ahead, ignore
-        if (syncData.roundNumber < gameState.roundNumber) {
-            logMessage('We are ahead of the sender, ignoring sync', 'info');
-            return;
+        // Check if we need to update our round
+        if (message.roundNumber > gameState.roundNumber) {
+            logMessage(`We're behind (our round: ${gameState.roundNumber}, sync round: ${message.roundNumber}), catching up`, 'warning');
+            startNextRound(message.currentCardIndex);
+        } else if (message.roundNumber < gameState.roundNumber) {
+            logMessage(`We're ahead (our round: ${gameState.roundNumber}, sync round: ${message.roundNumber}), ignoring sync`, 'warning');
         }
         
-        // If we're on the same round, verify card and scores
-        if (syncData.roundNumber === gameState.roundNumber) {
-            // Update scores if they don't match
-            if (syncData.hostScore !== gameState.hostScore || syncData.guestScore !== gameState.guestScore) {
-                gameState.hostScore = syncData.hostScore;
-                gameState.guestScore = syncData.guestScore;
-                
-                // Update our score display based on whether we're host or guest
-                if (isHost) {
-                    gameState.yourScore = syncData.hostScore;
-                    gameState.opponentScore = syncData.guestScore;
-                } else {
-                    gameState.yourScore = syncData.guestScore;
-                    gameState.opponentScore = syncData.hostScore;
-                }
-                
-                // Update UI
-                elements.game.yourScore.textContent = gameState.yourScore;
-                elements.game.opponentScore.textContent = gameState.opponentScore;
-                
-                logMessage('Updated scores to match sync data', 'info');
-            }
+        // Update scores from host (source of truth)
+        if (message.hostScore !== undefined && message.guestScore !== undefined) {
+            gameState.hostScore = message.hostScore;
+            gameState.guestScore = message.guestScore;
             
-            // Verify we're on the same card
-            const currentCard = gameState.gameCards[gameState.currentCardIndex];
-            if (currentCard && currentCard.front !== syncData.cardFront) {
-                logMessage('Card mismatch detected, adjusting...', 'warning');
-                
-                // Find the correct card in our deck
-                const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
-                if (cardIndex !== -1) {
-                    gameState.currentCardIndex = cardIndex;
-                    
-                    // Update UI with the correct card
-                    elements.game.cardQuestion.textContent = gameState.gameCards[cardIndex].front;
-                    logMessage(`Adjusted to card at index ${cardIndex}`, 'success');
-                }
-            }
-            
-            return;
-        }
-        
-        // If we're behind, catch up to the correct round
-        if (syncData.roundNumber > gameState.roundNumber) {
-            logMessage(`We are behind (round ${gameState.roundNumber} vs ${syncData.roundNumber}), catching up`, 'warning');
-            
-            // Update to match the sender's state
-            gameState.roundNumber = syncData.roundNumber - 1; // -1 because startNextRound will increment
-            gameState.hostScore = syncData.hostScore;
-            gameState.guestScore = syncData.guestScore;
-            
-            // Update our score display based on whether we're host or guest
             if (isHost) {
-                gameState.yourScore = syncData.hostScore;
-                gameState.opponentScore = syncData.guestScore;
+                gameState.yourScore = gameState.hostScore;
+                gameState.opponentScore = gameState.guestScore;
             } else {
-                gameState.yourScore = syncData.guestScore;
-                gameState.opponentScore = syncData.hostScore;
+                gameState.yourScore = gameState.guestScore;
+                gameState.opponentScore = gameState.hostScore;
             }
             
-            // Find the correct card index
-            const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
-            if (cardIndex !== -1) {
-                gameState.currentCardIndex = cardIndex - 1; // -1 because startNextRound will increment
-            }
-            
-            // Start the next round to align with the sender
-            startNextRound();
+            // Update score display
+            document.getElementById('yourScore').textContent = gameState.yourScore;
+            document.getElementById('opponentScore').textContent = gameState.opponentScore;
         }
     }
     
-    // Handle next round message from the other player (for backward compatibility)
-    function handleNextRound(message) {
-        // If we're already on this round, ignore
-        if (message.roundNumber === gameState.roundNumber) {
-            return;
+    // Handle answer submitted by other player
+    function handleAnswerSubmitted(message) {
+        if (message.roomCode !== currentRoomCode || message.senderId === firebaseUid) {
+            return; // Not for our room or it's our own message
         }
         
-        // If we're behind, catch up
-        if (message.roundNumber > gameState.roundNumber) {
-            logMessage(`Received next round message: we are behind (${gameState.roundNumber} vs ${message.roundNumber})`, 'warning');
-            startNextRound();
+        logMessage(`Opponent answered: ${message.optionText} (${message.isCorrect ? 'Correct' : 'Incorrect'})`, 'info');
+        
+        // Mark that opponent has answered
+        gameState.opponentAnswered = true;
+        
+        // Update opponent score
+        if (message.isCorrect) {
+            if (isHost) {
+                // We're host, so opponent is guest
+                gameState.guestScore = message.guestScore;
+                gameState.opponentScore = gameState.guestScore;
+            } else {
+                // We're guest, so opponent is host
+                gameState.hostScore = message.hostScore;
+                gameState.opponentScore = gameState.hostScore;
+            }
+            document.getElementById('opponentScore').textContent = gameState.opponentScore;
+        }
+        
+        // Remove waiting notification if it exists
+        const waitingToast = document.querySelector('.toast-notification');
+        if (waitingToast && waitingToast.textContent.includes('Waiting for opponent')) {
+            waitingToast.remove();
+        }
+        
+        // Show notification that opponent answered
+        showSuccessToast('Opponent Answered', 
+            `Your opponent chose "${message.optionText}" and was ${message.isCorrect ? 'correct' : 'incorrect'}.`, 3);
+        
+        // If we've also answered, move to next round after delay
+        if (gameState.hasAnswered) {
+            logMessage('Both players have answered, moving to next round soon', 'info');
+            setTimeout(() => {
+                startNextRound();
+            }, 2000);
         }
     }
 
@@ -1537,29 +1514,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Handle game start event
+    // Handle game started message
     function handleGameStarted(message) {
-        // Make sure the message is for our current room
         if (message.roomCode !== currentRoomCode) {
-            logMessage(`Got game start for room ${message.roomCode} but we're in ${currentRoomCode}, ignoring`, 'warning');
-            return;
+            return; // Not for our room
         }
         
-        logMessage(`Game started by ${message.senderUsername}`, 'success');
+        logMessage(`Game started in room ${message.roomCode}`, 'success');
+        showSuccessToast('Game Started', 'The game has begun! Get ready for the first question.', 5);
         
-        // Clear any timers
-        if (window.gameStartTimeout) {
-            clearTimeout(window.gameStartTimeout);
-            window.gameStartTimeout = null;
-        }
-        
-        // Remove loading indicator if it exists
-        const loadingIndicator = document.getElementById('start-game-loading');
-        if (loadingIndicator) {
-            loadingIndicator.remove();
-        }
-        
-        // Reset game state with static cards
+        // Initialize game state
         gameState = {
             roundNumber: 0,
             hostScore: 0,
@@ -1569,36 +1533,47 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedOption: null,
             hasAnswered: false,
             opponentAnswered: false,
-            gameCards: [...STATIC_CARDS], // Use static cards directly
+            gameCards: [],
             currentCardIndex: -1,
-            totalRounds: STATIC_CARDS.length // Use all 15 cards
+            totalRounds: 15
         };
         
-        // Send acknowledgment if we're a guest
-        if (!isHost) {
-            sendGameStartAcknowledgment();
+        // Set up game with static cards
+        const seed = parseInt(message.roomCode.replace(/[^0-9]/g, '')) || Date.now();
+        logMessage(`Using seed ${seed} for card shuffling`, 'info');
+        
+        // Use static cards instead of waiting for server
+        const STATIC_CARDS = window.STATIC_CARDS || []; // Use from cards.js if available
+        
+        if (STATIC_CARDS && STATIC_CARDS.length > 0) {
+            // Initialize game with static cards
+            gameState.gameCards = [...STATIC_CARDS];
+            deterministicShuffle(gameState.gameCards, seed);
+            logMessage(`Game initialized with ${gameState.gameCards.length} static cards`, 'success');
+            
+            // Switch to game section
+            switchSection('gameSection');
+            
+            // If we're a guest, send acknowledgment to host that we've started the game
+            if (!isHost) {
+                sendRoomMessage({
+                    type: 'GAME_START_ACK',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now()
+                });
+            }
+            
+            // Start first round after a brief delay to ensure both players are ready
+            setTimeout(() => {
+                startNextRound(0);
+            }, 1000);
+        } else {
+            // Fallback if static cards aren't available
+            logMessage('Error: No static cards available for the game', 'error');
+            showSuccessToast('Error', 'Failed to load game cards', 5);
         }
-        
-        // Deterministically shuffle the cards using room code as seed
-        const seed = currentRoomCode.split('').reduce((acc, char) => {
-            return acc + char.charCodeAt(0);
-        }, 0);
-        
-        deterministicShuffle(gameState.gameCards, seed);
-        logMessage(`Shuffled ${gameState.gameCards.length} cards with seed ${seed}`, 'success');
-        
-        // Update UI
-        elements.game.yourScore.textContent = '0';
-        elements.game.opponentScore.textContent = '0';
-        
-        // Show game section
-        showSection('game');
-        
-        // Show a toast notification
-        showSuccessToast('Game started!', 'The game has begun. Good luck!');
-        
-        // Start first round immediately
-        setTimeout(startNextRound, 500);
     }
     
     // Send acknowledgment that guest received game start message
@@ -1729,466 +1704,256 @@ document.addEventListener('DOMContentLoaded', function() {
         return array;
     }
 
-    // Start the next round
-    function startNextRound() {
+    // Function to switch to a different section
+    function switchSection(sectionId) {
+        // Hide all sections first
+        document.querySelectorAll('.game-section').forEach(section => {
+            section.classList.remove('active');
+        });
+        
+        // Show the requested section
+        const targetSection = document.getElementById(sectionId);
+        if (targetSection) {
+            targetSection.classList.add('active');
+            logMessage(`Switched to section: ${sectionId}`, 'info');
+        } else {
+            logMessage(`Section not found: ${sectionId}`, 'error');
+        }
+    }
+
+    // Start next round with a specified card
+    function startNextRound(forcedCardIndex = null) {
         try {
-            // Clear any existing notifications from previous round
-            const notificationsToRemove = [
-                'waiting-for-opponent',
-                'opponent-answered',
-                'round-notification'
-            ];
+            // Increment round number
+            if (forcedCardIndex !== null) {
+                gameState.currentCardIndex = forcedCardIndex;
+                gameState.roundNumber = forcedCardIndex + 1;
+            } else {
+                gameState.currentCardIndex++;
+                gameState.roundNumber++;
+            }
             
-            notificationsToRemove.forEach(id => {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.remove();
-                }
-            });
-            
-            // Move to next card
-            gameState.currentCardIndex++;
-            gameState.roundNumber++;
-            gameState.hasAnswered = false;
-            gameState.opponentAnswered = false;
-            gameState.selectedOption = null;
-            
-            logMessage(`Starting round ${gameState.roundNumber}`, 'info');
-            
-            // Check if game is over
-            if (gameState.currentCardIndex >= gameState.gameCards.length || gameState.roundNumber > gameState.totalRounds) {
+            // Check if we've reached the end of rounds
+            if (gameState.currentCardIndex >= gameState.gameCards.length || 
+                gameState.roundNumber > gameState.totalRounds) {
                 endGame();
                 return;
             }
             
             const currentCard = gameState.gameCards[gameState.currentCardIndex];
-            if (!currentCard) {
-                logMessage('Invalid card index, ending game', 'error');
-                endGame();
-                return;
-            }
+            logMessage(`Starting round ${gameState.roundNumber} with card: ${currentCard.question}`, 'info');
             
-            // Update UI
-            elements.game.roundNumber.textContent = gameState.roundNumber;
-            elements.game.yourScore.textContent = gameState.yourScore;
-            elements.game.opponentScore.textContent = gameState.opponentScore;
-            elements.game.cardQuestion.textContent = currentCard.front;
-            elements.game.answerFeedback.style.display = 'none';
+            // Reset round state
+            gameState.selectedOption = null;
+            gameState.hasAnswered = false;
+            gameState.opponentAnswered = false;
             
-            // Create option buttons (using deterministic shuffle with same seed for consistency)
-            elements.game.optionsContainer.innerHTML = '';
+            // Update round number display
+            document.getElementById('roundNumber').textContent = gameState.roundNumber;
             
-            // Get a seed for this specific card based on room code and round number
-            const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
-                return acc + char.charCodeAt(0);
-            }, 0) + gameState.roundNumber * 100;
+            // Display card question
+            document.getElementById('cardQuestion').textContent = currentCard.question;
             
-            // Create a copy of options to shuffle so both players see same order
-            const shuffledOptions = [...currentCard.options];
-            deterministicShuffle(shuffledOptions, optionsSeed);
+            // Get and shuffle options
+            const options = [...currentCard.options];
+            const optionsSeed = gameState.currentCardIndex + parseInt(currentRoomCode.replace(/[^0-9]/g, '')) || 1;
+            deterministicShuffle(options, optionsSeed);
             
-            // Create option buttons with deterministically shuffled options
-            shuffledOptions.forEach((option, index) => {
-                const optionCol = document.createElement('div');
-                optionCol.className = 'col-md-6';
-                
-                const optionBtn = document.createElement('button');
-                optionBtn.className = 'btn option-btn';
-                optionBtn.textContent = option;
-                optionBtn.dataset.index = index;
-                optionBtn.dataset.value = option;
-                optionBtn.addEventListener('click', () => submitAnswerLocally(option));
-                
-                optionCol.appendChild(optionBtn);
-                elements.game.optionsContainer.appendChild(optionCol);
+            // Clear previous options
+            const optionsContainer = document.getElementById('optionsContainer');
+            optionsContainer.innerHTML = '';
+            
+            // Add options to the UI
+            options.forEach((option, index) => {
+                const optionBtn = document.createElement('div');
+                optionBtn.className = 'col-12 mb-2';
+                optionBtn.innerHTML = `
+                    <button class="btn btn-outline-primary option-btn w-100 py-3" data-index="${index}">
+                        ${option}
+                    </button>
+                `;
+                optionsContainer.appendChild(optionBtn);
             });
             
-            // Send round synchronization message to both players
-            sendRoundSyncMessage();
+            // Add click event for options
+            document.querySelectorAll('.option-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const selectedIndex = parseInt(this.getAttribute('data-index'));
+                    submitAnswer(selectedIndex, options[selectedIndex]);
+                });
+            });
             
-            // Show toast notification for new round
-            const roundToast = document.createElement('div');
-            roundToast.id = 'round-notification';
-            roundToast.className = 'toast align-items-center text-white bg-primary';
-            roundToast.setAttribute('role', 'alert');
-            roundToast.innerHTML = `
-                <div class="toast-body">
-                    <strong>Round ${gameState.roundNumber} of ${gameState.totalRounds}</strong>
-                </div>
-            `;
-            document.body.appendChild(roundToast);
-            const toast = new bootstrap.Toast(roundToast, { delay: 2000 });
-            toast.show();
+            // Hide any previous feedback
+            const answerFeedback = document.getElementById('answerFeedback');
+            answerFeedback.style.display = 'none';
             
-            setTimeout(() => {
-                const notification = document.getElementById('round-notification');
-                if (notification) {
-                    notification.remove();
-                }
-            }, 2000);
+            // Send round sync message if host
+            if (isHost) {
+                sendRoomMessage({
+                    type: 'ROUND_SYNC',
+                    roomCode: currentRoomCode,
+                    roundNumber: gameState.roundNumber,
+                    currentCardIndex: gameState.currentCardIndex,
+                    hostScore: gameState.hostScore,
+                    guestScore: gameState.guestScore,
+                    timestamp: Date.now()
+                });
+            }
             
-            logMessage(`Round ${gameState.roundNumber} started with card: ${currentCard.front}`, 'info');
+            // Make sure we're in the game section
+            switchSection('gameSection');
         } catch (error) {
             logMessage(`Error starting next round: ${error.message}`, 'error');
-            showSuccessToast('Error', 'There was a problem starting the next round. Try again.', 3);
-        }
-    }
-    
-    // Send a round synchronization message to ensure both players are on the same round
-    function sendRoundSyncMessage() {
-        if (!stompClient || !stompClient.connected) {
-            return;
-        }
-        
-        try {
-            const roundSyncData = {
-                roomCode: currentRoomCode,
-                roundNumber: gameState.roundNumber,
-                hostScore: gameState.hostScore,
-                guestScore: gameState.guestScore,
-                currentCardIndex: gameState.currentCardIndex,
-                cardFront: gameState.gameCards[gameState.currentCardIndex].front,
-                totalCards: gameState.gameCards.length
-            };
-            
-            const message = {
-                type: "ROUND_SYNC",
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now(),
-                syncData: roundSyncData,
-                senderIsHost: isHost
-            };
-            
-            // Send to room topic
-            stompClient.send(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                { roomCode: currentRoomCode }, 
-                JSON.stringify(message)
-            );
-            
-            logMessage("Sent round sync message for round " + gameState.roundNumber, "info");
-        } catch (e) {
-            logMessage("Error sending round sync: " + e.message, "error");
+            showSuccessToast('Error', 'Failed to start next round', 5);
         }
     }
 
-    // Submit answer locally
-    function submitAnswerLocally(selectedOption) {
+    // Submit an answer for the current round
+    function submitAnswer(optionIndex, optionText) {
         if (gameState.hasAnswered) {
+            // Already answered this round
             return;
         }
         
-        const currentCard = gameState.gameCards[gameState.currentCardIndex];
-        const isCorrect = selectedOption === currentCard.back;
+        logMessage(`Submitting answer: ${optionText} (index: ${optionIndex})`, 'info');
         
-        // Update score
-        if (isCorrect) {
-            gameState.yourScore++;
-            if (isHost) {
-                gameState.hostScore++;
-            } else {
-                gameState.guestScore++;
-            }
-        }
-        
-        // Mark as answered
-        gameState.hasAnswered = true;
-        gameState.selectedOption = selectedOption;
-        
-        // Update UI
-        elements.game.yourScore.textContent = gameState.yourScore;
-        
-        // Show feedback
-        const optionButtons = elements.game.optionsContainer.querySelectorAll('.option-btn');
-        optionButtons.forEach(button => {
-            const optionValue = button.dataset.value;
-            
-            // Disable all buttons
-            button.disabled = true;
-            
-            // Mark selected option
-            if (optionValue === selectedOption) {
-                if (isCorrect) {
-                    button.classList.add('correct');
-                } else {
-                    button.classList.add('incorrect');
-                }
-            }
-            
-            // Mark correct answer if user selected wrong
-            if (optionValue === currentCard.back && !isCorrect) {
-                button.classList.add('correct');
+        // Mark this option as selected
+        document.querySelectorAll('.option-btn').forEach(btn => {
+            btn.disabled = true;
+            if (parseInt(btn.getAttribute('data-index')) === optionIndex) {
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-primary');
             }
         });
         
-        // Show answer feedback
-        elements.game.answerFeedback.style.display = 'block';
+        // Update game state
+        gameState.hasAnswered = true;
+        gameState.selectedOption = optionIndex;
+        
+        // Get correct answer
+        const currentCard = gameState.gameCards[gameState.currentCardIndex];
+        const correctOption = currentCard.correctOption;
+        const isCorrect = optionText === correctOption;
+        
+        // Show feedback
+        const answerFeedback = document.getElementById('answerFeedback');
+        answerFeedback.className = 'alert ' + (isCorrect ? 'alert-success' : 'alert-danger');
+        answerFeedback.innerHTML = isCorrect ? 
+            '<i class="fas fa-check-circle"></i> Correct! +1 point' : 
+            `<i class="fas fa-times-circle"></i> Incorrect! The correct answer is "${correctOption}"`;
+        answerFeedback.style.display = 'block';
+        
+        // Update score
         if (isCorrect) {
-            elements.game.answerFeedback.className = 'alert alert-success';
-            elements.game.answerFeedback.textContent = 'Correct! +1 point';
-        } else {
-            elements.game.answerFeedback.className = 'alert alert-danger';
-            elements.game.answerFeedback.textContent = `Incorrect. The correct answer is: ${currentCard.back}`;
+            if (isHost) {
+                gameState.hostScore++;
+                gameState.yourScore = gameState.hostScore;
+            } else {
+                gameState.guestScore++;
+                gameState.yourScore = gameState.guestScore;
+            }
+            document.getElementById('yourScore').textContent = gameState.yourScore;
         }
         
-        // Show waiting indicator if opponent hasn't answered yet
-        if (!gameState.opponentAnswered) {
-            const waitingDiv = document.createElement('div');
-            waitingDiv.id = 'waiting-for-opponent';
-            waitingDiv.className = 'alert alert-info mt-3';
-            waitingDiv.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                    <span>Waiting for opponent to answer...</span>
-                </div>
-            `;
-            elements.game.answerFeedback.after(waitingDiv);
-        }
+        // Send answer to other player
+        sendRoomMessage({
+            type: 'ANSWER_SUBMITTED',
+            roomCode: currentRoomCode,
+            senderId: firebaseUid,
+            senderUsername: playerUsername,
+            isHost: isHost,
+            optionIndex: optionIndex,
+            optionText: optionText,
+            isCorrect: isCorrect,
+            hostScore: isHost ? gameState.hostScore : gameState.hostScore,
+            guestScore: isHost ? gameState.guestScore : gameState.guestScore,
+            timestamp: Date.now()
+        });
         
-        // Notify the other player about our answer
-        if (stompClient && stompClient.connected) {
-            stompClient.send('/app/game.submitAnswer', 
-                { roomCode: currentRoomCode }, 
-                JSON.stringify({
-                    type: 'ANSWER_SUBMITTED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    content: selectedOption,
-                    hostScore: gameState.hostScore,
-                    guestScore: gameState.guestScore,
-                    isCorrect: isCorrect,
-                    roundNumber: gameState.roundNumber
-                })
-            );
-            
-            // Also send directly to room topic for redundancy
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                { roomCode: currentRoomCode }, 
-                JSON.stringify({
-                    type: 'ANSWER_SUBMITTED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    content: selectedOption,
-                    hostScore: gameState.hostScore,
-                    guestScore: gameState.guestScore,
-                    isCorrect: isCorrect,
-                    roundNumber: gameState.roundNumber
-                })
-            );
-        }
-        
-        // If opponent has already answered, move to next round after delay
+        // If opponent already answered, move to next round after delay
         if (gameState.opponentAnswered) {
-            showSuccessToast('Both players answered', 'Moving to next question in 3 seconds...');
-            setTimeout(startNextRound, 3000);
+            logMessage('Both players have answered, moving to next round soon', 'info');
+            setTimeout(() => {
+                startNextRound();
+            }, 2000);
+        } else {
+            showSuccessToast('Waiting', 'Waiting for opponent to answer...', 0);
         }
-        
-        logMessage(`You answered: ${selectedOption} (${isCorrect ? 'Correct' : 'Incorrect'})`, 'info');
     }
     
-    // Handle answer submitted message from opponent
-    function handleAnswerSubmitted(message) {
-        // Make sure this is for our current room and round
+    // End the game and show results
+    function endGame() {
+        logMessage('Game over, showing results', 'info');
+        
+        // Update the results UI
+        document.getElementById('player1Name').textContent = isHost ? playerUsername : 'Opponent';
+        document.getElementById('player2Name').textContent = isHost ? 'Opponent' : playerUsername;
+        document.getElementById('player1Score').textContent = isHost ? gameState.yourScore : gameState.opponentScore;
+        document.getElementById('player2Score').textContent = isHost ? gameState.opponentScore : gameState.yourScore;
+        
+        // Determine winner
+        const youWon = gameState.yourScore > gameState.opponentScore;
+        const tie = gameState.yourScore === gameState.opponentScore;
+        
+        const winnerText = document.getElementById('winnerText');
+        const winnerDisplay = document.getElementById('winnerDisplay');
+        
+        if (tie) {
+            winnerText.textContent = "It's a Tie!";
+            winnerDisplay.className = 'alert alert-info mb-4';
+        } else if (youWon) {
+            winnerText.textContent = "You Won!";
+            winnerDisplay.className = 'alert alert-success mb-4';
+        } else {
+            winnerText.textContent = "You Lost!";
+            winnerDisplay.className = 'alert alert-danger mb-4';
+        }
+        
+        // Switch to results section
+        switchSection('resultsSection');
+        
+        // Show a toast with the result
+        if (tie) {
+            showSuccessToast('Game Over', "It's a tie! Both players scored " + gameState.yourScore + " points.", 5);
+        } else if (youWon) {
+            showSuccessToast('Game Over', 'Congratulations! You won with ' + gameState.yourScore + ' points!', 5);
+        } else {
+            showSuccessToast('Game Over', 'You lost with ' + gameState.yourScore + ' points.', 5);
+        }
+    }
+    
+    // Handle next round message from server or other player
+    function handleNextRound(message) {
         if (message.roomCode !== currentRoomCode) {
+            return; // Not for our room
+        }
+        
+        logMessage(`Received next round message for round ${message.roundNumber}`, 'info');
+        
+        // If we're already on this round or ahead, ignore
+        if (message.roundNumber <= gameState.roundNumber) {
             return;
         }
         
-        // Ignore own messages
-        if (message.senderId === firebaseUid) {
-            return;
-        }
-        
-        // Mark opponent as answered
-        gameState.opponentAnswered = true;
-        
-        // Update scores
+        // Make sure the scores are in sync
         gameState.hostScore = message.hostScore;
         gameState.guestScore = message.guestScore;
         
-        // Update opponent score based on whether we're host or guest
         if (isHost) {
-            gameState.opponentScore = message.guestScore;
+            gameState.yourScore = gameState.hostScore;
+            gameState.opponentScore = gameState.guestScore;
         } else {
-            gameState.opponentScore = message.hostScore;
+            gameState.yourScore = gameState.guestScore;
+            gameState.opponentScore = gameState.hostScore;
         }
         
-        // Update UI
-        elements.game.opponentScore.textContent = gameState.opponentScore;
+        // Update score display
+        document.getElementById('yourScore').textContent = gameState.yourScore;
+        document.getElementById('opponentScore').textContent = gameState.opponentScore;
         
-        // If there's a waiting indicator, remove it
-        const waitingIndicator = document.getElementById('waiting-for-opponent');
-        if (waitingIndicator) {
-            waitingIndicator.remove();
-        }
-        
-        // Show notification that opponent answered
-        showSuccessToast('Opponent answered', `${message.senderUsername} answered the question!`);
-        
-        logMessage(`${message.senderUsername} submitted answer: ${message.content} (round ${message.roundNumber})`, 'info');
-        
-        // If we've already answered, move to next round after delay
-        if (gameState.hasAnswered) {
-            showSuccessToast('Both players answered', 'Moving to next question in 3 seconds...');
-            setTimeout(startNextRound, 3000);
-        } else {
-            // We haven't answered yet, show notification to user
-            const opponentAnsweredDiv = document.createElement('div');
-            opponentAnsweredDiv.id = 'opponent-answered';
-            opponentAnsweredDiv.className = 'alert alert-warning mt-3';
-            opponentAnsweredDiv.innerHTML = `<strong>${message.senderUsername}</strong> has already answered. Please submit your answer!`;
-            
-            const existingNotification = document.getElementById('opponent-answered');
-            if (!existingNotification) {
-                elements.game.optionsContainer.parentNode.insertBefore(opponentAnsweredDiv, elements.game.optionsContainer.nextSibling);
-            }
-        }
-    }
-    
-    // End the game locally
-    function endGame() {
-        try {
-            logMessage('Ending game and showing results', 'info');
-            
-            // Determine the winner
-            let winnerUsername;
-            let isWinner = false;
-            
-            if (gameState.hostScore > gameState.guestScore) {
-                winnerUsername = isHost ? playerUsername : 'Opponent';
-                isWinner = isHost;
-            } else if (gameState.guestScore > gameState.hostScore) {
-                winnerUsername = !isHost ? playerUsername : 'Opponent';
-                isWinner = !isHost;
-            } else {
-                winnerUsername = 'Draw';
-            }
-            
-            // Create game result
-            const gameResult = {
-                roomCode: currentRoomCode,
-                hostUsername: isHost ? playerUsername : 'Opponent',
-                guestUsername: !isHost ? playerUsername : 'Opponent',
-                hostScore: gameState.hostScore,
-                guestScore: gameState.guestScore,
-                winnerUsername: winnerUsername
-            };
-            
-            // Update UI based on result
-            if (isHost) {
-                elements.results.player1Name.textContent = gameResult.hostUsername + ' (You)';
-                elements.results.player1Score.textContent = gameResult.hostScore;
-                elements.results.player2Name.textContent = gameResult.guestUsername;
-                elements.results.player2Score.textContent = gameResult.guestScore;
-                
-                // Determine if we won
-                if (gameResult.hostScore > gameResult.guestScore) {
-                    elements.results.winnerText.textContent = 'You Won!';
-                    elements.results.winnerDisplay.className = 'alert alert-success mb-4';
-                } else if (gameResult.hostScore < gameResult.guestScore) {
-                    elements.results.winnerText.textContent = 'You Lost!';
-                    elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
-                } else {
-                    elements.results.winnerText.textContent = 'It\'s a Draw!';
-                    elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
-                }
-            } else {
-                elements.results.player1Name.textContent = gameResult.hostUsername;
-                elements.results.player1Score.textContent = gameResult.hostScore;
-                elements.results.player2Name.textContent = gameResult.guestUsername + ' (You)';
-                elements.results.player2Score.textContent = gameResult.guestScore;
-                
-                // Determine if we won
-                if (gameResult.guestScore > gameResult.hostScore) {
-                    elements.results.winnerText.textContent = 'You Won!';
-                    elements.results.winnerDisplay.className = 'alert alert-success mb-4';
-                } else if (gameResult.guestScore < gameResult.hostScore) {
-                    elements.results.winnerText.textContent = 'You Lost!';
-                    elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
-                } else {
-                    elements.results.winnerText.textContent = 'It\'s a Draw!';
-                    elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
-                }
-            }
-            
-            // Show results section
-            showSection('results');
-            
-            // Show toast
-            showSuccessToast('Game Over', 'The game has ended! Check the results.', 5);
-            
-            logMessage('Game over', 'info');
-            
-            // Try to notify the other player, but don't depend on it
-            try {
-                if (stompClient && stompClient.connected) {
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                        { roomCode: currentRoomCode }, 
-                        JSON.stringify({
-                            type: 'GAME_OVER',
-                            roomCode: currentRoomCode,
-                            gameResult: gameResult
-                        })
-                    );
-                }
-            } catch (e) {
-                logMessage(`Could not send game over message: ${e.message}`, 'warning');
-            }
-        } catch (error) {
-            logMessage(`Error ending game: ${error.message}`, 'error');
-            // Fallback to showing the lobby
-            showSection('lobby');
-        }
-    }
-    
-    // Handle game over message
-    function handleGameOver(message) {
-        const result = message.gameResult;
-        
-        // Update final scores
-        if (isHost) {
-            elements.results.player1Name.textContent = result.hostUsername + ' (You)';
-            elements.results.player1Score.textContent = result.hostScore;
-            elements.results.player2Name.textContent = result.guestUsername;
-            elements.results.player2Score.textContent = result.guestScore;
-            
-            // Determine if we won
-            if (result.hostScore > result.guestScore) {
-                elements.results.winnerText.textContent = 'You Won!';
-                elements.results.winnerDisplay.className = 'alert alert-success mb-4';
-            } else if (result.hostScore < result.guestScore) {
-                elements.results.winnerText.textContent = 'You Lost!';
-                elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
-            } else {
-                elements.results.winnerText.textContent = 'It\'s a Draw!';
-                elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
-            }
-        } else {
-            elements.results.player1Name.textContent = result.hostUsername;
-            elements.results.player1Score.textContent = result.hostScore;
-            elements.results.player2Name.textContent = result.guestUsername + ' (You)';
-            elements.results.player2Score.textContent = result.guestScore;
-            
-            // Determine if we won
-            if (result.guestScore > result.hostScore) {
-                elements.results.winnerText.textContent = 'You Won!';
-                elements.results.winnerDisplay.className = 'alert alert-success mb-4';
-            } else if (result.guestScore < result.hostScore) {
-                elements.results.winnerText.textContent = 'You Lost!';
-                elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
-            } else {
-                elements.results.winnerText.textContent = 'It\'s a Draw!';
-                elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
-            }
-        }
-        
-        // Show results section
-        showSection('results');
-        
-        logMessage('Game over', 'info');
+        // Move to the next round
+        gameState.roundNumber = message.roundNumber - 1; // Will be incremented in startNextRound
+        startNextRound();
     }
 
     // Initialize the application
@@ -2357,4 +2122,143 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }
+
+    // Utility function to show a toast notification
+    function showSuccessToast(title, message, seconds = 3) {
+        const toastId = 'toast-' + Date.now();
+        const toastHTML = `
+            <div id="${toastId}" class="toast-notification ${title.toLowerCase().includes('error') ? 'error' : 'success'}">
+                <div class="toast-header">
+                    <strong>${title}</strong>
+                    <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
+                </div>
+                <div class="toast-body">${message}</div>
+            </div>
+        `;
+        
+        // Append toast to body
+        document.body.insertAdjacentHTML('beforeend', toastHTML);
+        
+        // Show the toast
+        const toastElement = document.getElementById(toastId);
+        setTimeout(() => {
+            toastElement.classList.add('show');
+        }, 100);
+        
+        // Auto-remove after specified seconds
+        if (seconds > 0) {
+            setTimeout(() => {
+                toastElement.classList.remove('show');
+                setTimeout(() => {
+                    toastElement.remove();
+                }, 500);
+            }, seconds * 1000);
+        }
+        
+        return toastId;
+    }
+
+    // Add required toast styles
+    const toastStyles = document.createElement('style');
+    toastStyles.textContent = `
+        .toast-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            min-width: 300px;
+            max-width: 400px;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 9999;
+            border-radius: 6px;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s ease;
+        }
+        .toast-notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast-notification.success .toast-header {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .toast-notification.error .toast-header {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .toast-header {
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .toast-body {
+            padding: 10px 15px;
+        }
+        .btn-close {
+            background: transparent;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            position: relative;
+        }
+        .btn-close:before, .btn-close:after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background-color: currentColor;
+            top: 50%;
+            left: 0;
+        }
+        .btn-close:before {
+            transform: rotate(45deg);
+        }
+        .btn-close:after {
+            transform: rotate(-45deg);
+        }
+    `;
+    document.head.appendChild(toastStyles);
+
+    // Add a diagnostic button at bottom of the page
+    const diagnosticButton = document.createElement('button');
+    diagnosticButton.className = 'btn btn-sm btn-warning position-fixed';
+    diagnosticButton.style.cssText = 'bottom: 20px; right: 20px; z-index: 9999;';
+    diagnosticButton.textContent = 'Debug: Force Game Start';
+    diagnosticButton.addEventListener('click', function() {
+        if (!currentRoomCode) {
+            showSuccessToast('Debug', 'You need to be in a room first', 3);
+            return;
+        }
+        debugStartGame();
+    });
+    document.body.appendChild(diagnosticButton);
+    
+    // Debug functions that can be called from console
+    window.debugStartGame = function() {
+        const message = {
+            type: 'GAME_STARTED',
+            roomCode: currentRoomCode,
+            senderId: 'debug-console',
+            senderUsername: 'Debug Console',
+            timestamp: Date.now()
+        };
+        handleGameStarted(message);
+        showSuccessToast('Debug', 'Forced game start', 3);
+    };
+    
+    window.debugNextRound = function() {
+        startNextRound();
+        showSuccessToast('Debug', 'Forced next round', 3);
+    };
+    
+    window.debugEndGame = function() {
+        endGame();
+        showSuccessToast('Debug', 'Forced game end', 3);
+    };
 });
