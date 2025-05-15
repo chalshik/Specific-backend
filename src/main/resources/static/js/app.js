@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.join.leaveJoinedRoomBtn.addEventListener('click', () => leaveRoom(false));
         
         // Game
-        elements.game.leaveGameBtn.addEventListener('click', leaveGame);
+        elements.game.leaveGameBtn.addEventListener('click', () => leaveRoom(isHost));
         
         // Results
         elements.results.playAgainBtn.addEventListener('click', playAgain);
@@ -233,16 +233,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 handleConnectionFailure();
             }, 10000); // 10 second timeout
             
-            // Additional headers for authentication
-            const headers = {
-                username: playerUsername,
-                firebaseUid: firebaseUid
-            };
+            // Connect with simplified headers - only username and Firebase UID
+            const headers = {};
+            if (playerUsername) headers.username = playerUsername;
+            if (firebaseUid) headers.firebaseUid = firebaseUid;
             
-            // Set the client ID to be unique for this session
-            const clientId = 'specific-client-' + Math.random().toString(36).substring(2, 15);
-            
-            // Connect to WebSocket with proper headers and client ID
+            // Connect to WebSocket
             stompClient.connect(
                 headers,
                 function() {
@@ -254,8 +250,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     clearTimeout(connectTimeout);
                     logMessage(`STOMP error: ${error}`, 'error');
                     handleConnectionFailure();
-                },
-                clientId
+                }
             );
         } catch (e) {
             logMessage(`Connection exception: ${e.message}`, 'error');
@@ -1960,96 +1955,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle player left message
     function handlePlayerLeft(message) {
-        logMessage(`${message.senderUsername} left the room`, 'info');
+        logMessage(`Player left event received: ${JSON.stringify(message)}`, 'info');
         
-        const isHostLeft = message.isHost === true;
-        const isHostMessage = message.isHost === true && message.senderUsername !== playerUsername;
-        const isGuestMessage = !message.isHost && message.senderUsername !== playerUsername;
+        const playerLeft = message.isHost ? 'Host' : 'Guest';
+        const playerUsername = message.senderUsername || 'Unknown player';
         
-        // Show a notification that the other player left
-        const leftNotification = document.createElement('div');
-        leftNotification.id = 'player-left-notification';
-        leftNotification.className = 'alert alert-warning mt-3';
-        leftNotification.innerHTML = `<strong>${message.senderUsername}</strong> has left the room!`;
-        
-        // Add notification to appropriate container
-        if (isHost) {
-            elements.create.roomInfo.appendChild(leftNotification);
+        // Display notification based on who left
+        if (message.isHost && !isHost) {
+            // Host left, and we're the guest
+            showSuccessToast('Game Ended', `The host (${playerUsername}) has left the room. Returning to lobby...`, 5);
+            logMessage('Host has left the room', 'warning');
             
-            // If we're host, remove the guest from our list
-            if (isGuestMessage) {
-                const guestItems = Array.from(elements.create.playersList.children);
-                guestItems.forEach(item => {
-                    if (item.textContent.includes(message.senderUsername)) {
-                        item.remove();
-                        logMessage(`Removed ${message.senderUsername} from host player list`, 'info');
-                    }
-                });
-                
-                // Disable start button since guest left
-                elements.create.startGameBtn.disabled = true;
-            }
-        } else {
-            elements.join.joinedRoomInfo.appendChild(leftNotification);
-            
-            // If we're guest and host left, show special message
-            if (isHostMessage) {
-                leftNotification.className = 'alert alert-danger mt-3';
-                leftNotification.innerHTML = `<strong>The host ${message.senderUsername} has left the room!</strong><br>You'll need to join another room.`;
-                
-                // Remove host from player list
-                const hostItems = Array.from(elements.join.joinedPlayersList.children);
-                hostItems.forEach(item => {
-                    if (item.textContent.includes('Host')) {
-                        item.remove();
-                        logMessage('Removed host from guest player list', 'info');
-                    }
-                });
-                
-                // Schedule auto return to lobby form
-                setTimeout(() => {
-                    leaveRoom(false);
-                }, 5000);
-            }
-        }
-        
-        // Auto-remove notification after 5 seconds
-        setTimeout(() => {
-            const notification = document.getElementById('player-left-notification');
-            if (notification) {
-                notification.remove();
-            }
-        }, 5000);
-        
-        // If we're in a game, handle differently
-        if (elements.sections.game.classList.contains('active')) {
-            // If opponent left during game
-            displayError(`${message.senderUsername} left the game.`);
-            
-            // Return to lobby after a short delay
+            // Return to lobby after a brief delay
             setTimeout(() => {
+                resetRoomState();
                 showSection('lobby');
                 
-                // Show appropriate message
-                const gameEndedNotification = document.createElement('div');
-                gameEndedNotification.id = 'game-ended-notification';
-                gameEndedNotification.className = 'alert alert-danger mt-3';
-                gameEndedNotification.innerHTML = `<strong>Game ended:</strong> ${message.senderUsername} left during the game!`;
-                
-                if (isHost) {
-                    elements.create.roomInfo.appendChild(gameEndedNotification);
-                } else {
-                    elements.join.joinedRoomInfo.appendChild(gameEndedNotification);
-                }
-                
-                // Remove notification after a delay
-                setTimeout(() => {
-                    const notification = document.getElementById('game-ended-notification');
-                    if (notification) {
-                        notification.remove();
+                // Remove any status messages
+                const statuses = ['joining-status', 'joined-status', 'guest-joined-notification', 'joined-success-notification'];
+                statuses.forEach(id => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.remove();
                     }
-                }, 5000);
+                });
             }, 2000);
+        } else if (!message.isHost && isHost) {
+            // Guest left, and we're the host
+            showSuccessToast('Player Left', `${playerUsername} has left the room.`, 5);
+            logMessage('Guest has left the room', 'info');
+            
+            // Remove the guest from our player list
+            const playersList = elements.create.playersList;
+            const playerItems = playersList.querySelectorAll('li');
+            playerItems.forEach(item => {
+                if (item.textContent.includes(playerUsername)) {
+                    item.remove();
+                }
+            });
+            
+            // Disable start game button since guest is gone
+            elements.create.startGameBtn.disabled = true;
         }
     }
 
@@ -2243,40 +2189,50 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Display a success toast notification
-    function showSuccessToast(title, message) {
-        const successToast = document.createElement('div');
-        successToast.className = 'toast show bg-success text-white';
-        successToast.setAttribute('role', 'alert');
-        successToast.setAttribute('aria-live', 'assertive');
-        successToast.setAttribute('aria-atomic', 'true');
-        successToast.style.position = 'fixed';
-        successToast.style.bottom = '20px';
-        successToast.style.right = '20px';
-        successToast.style.minWidth = '250px';
-        successToast.style.zIndex = '1050';
-        
-        successToast.innerHTML = `
-            <div class="toast-header bg-success text-white">
-                <strong class="me-auto">${title}</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">
-                ${message}
+    function showSuccessToast(title, message, autoRemoveSeconds = 3) {
+        const toastId = 'success-toast-' + Date.now();
+        const toastHtml = `
+            <div id="${toastId}" class="toast align-items-center text-white bg-success" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <strong>${title}</strong> ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
             </div>
         `;
         
-        document.body.appendChild(successToast);
+        // Append to toast container
+        const toastContainer = document.getElementById('toast-container');
+        if (toastContainer) {
+            toastContainer.innerHTML += toastHtml;
+        } else {
+            // Create toast container if it doesn't exist
+            const container = document.createElement('div');
+            container.id = 'toast-container';
+            container.className = 'toast-container position-fixed top-0 end-0 p-3';
+            container.style.zIndex = '1050';
+            container.innerHTML = toastHtml;
+            document.body.appendChild(container);
+        }
         
-        // Automatically remove the toast after 3 seconds
-        setTimeout(() => {
-            successToast.remove();
-        }, 3000);
-        
-        // Add close button functionality
-        const closeBtn = successToast.querySelector('.btn-close');
-        closeBtn.addEventListener('click', () => {
-            successToast.remove();
+        // Show the toast
+        const toast = new bootstrap.Toast(document.getElementById(toastId), {
+            delay: autoRemoveSeconds * 1000
         });
+        toast.show();
+        
+        // Auto-remove after specified seconds
+        if (autoRemoveSeconds > 0) {
+            setTimeout(() => {
+                const toastElement = document.getElementById(toastId);
+                if (toastElement) {
+                    toastElement.remove();
+                }
+            }, autoRemoveSeconds * 1000);
+        }
+        
+        return toastId;
     }
 
     // Display an error message
@@ -2316,6 +2272,234 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         logMessage(`Error displayed: ${message}`, 'error');
+    }
+
+    // Leave the current game and return to lobby
+    function leaveGame() {
+        logMessage('Leaving game...', 'info');
+        
+        // Display a notification that you're leaving
+        showSuccessToast('Leaving Game', 'Returning to lobby...', 3);
+        
+        // Return to appropriate lobby view
+        resetRoomState();
+        
+        if (isHost) {
+            // Return to host lobby
+            showSection('create');
+            
+            // Reset room view
+            elements.create.roomInfo.style.display = 'none';
+            elements.create.roomPlayers.style.display = 'none';
+            elements.create.startGameBtn.disabled = false;
+            
+            // Re-enable create button
+            elements.create.createRoomBtn.disabled = false;
+        } else {
+            // Return to guest lobby
+            showSection('join');
+            
+            // Reset join view
+            elements.join.joinedRoomInfo.style.display = 'none';
+            elements.join.joinedRoomPlayers.style.display = 'none';
+            
+            // Show join form again
+            elements.join.joinRoomBtn.style.display = '';
+            elements.join.joinRoomCodeInput.style.display = '';
+            elements.join.joinRoomCodeInput.value = '';
+            elements.join.joinRoomBtn.disabled = false;
+            
+            const joinFormLabel = document.querySelector('label[for="joinRoomCode"]');
+            if (joinFormLabel) {
+                joinFormLabel.style.display = '';
+            }
+        }
+        
+        logMessage('Left game successfully', 'success');
+    }
+    
+    // Play again function - only host can restart game
+    function playAgain() {
+        if (isHost) {
+            logMessage('Starting new game...', 'info');
+            startGame();
+        } else {
+            // Non-host players should just return to lobby
+            showSection('join');
+            logMessage('Returned to lobby for a new game', 'info');
+        }
+    }
+    
+    // Return to lobby after game ends
+    function returnToLobby() {
+        logMessage('Returning to lobby...', 'info');
+        showSection('lobby');
+    }
+
+    // Update players list
+    function updatePlayersList() {
+        // Clear existing lists
+        elements.create.playersList.innerHTML = '';
+        elements.join.joinedPlayersList.innerHTML = '';
+        
+        // Add the current player
+        if (isHost) {
+            // Add ourselves as host to the host view
+            const hostItem = document.createElement('li');
+            hostItem.className = 'list-group-item';
+            hostItem.innerHTML = `
+                <i class="fas fa-user player-icon"></i>
+                ${playerUsername}
+                <span class="badge bg-primary host-badge">Host</span>
+            `;
+            elements.create.playersList.appendChild(hostItem);
+            elements.create.startGameBtn.disabled = true; // Disable until guest joins
+        } else {
+            // Add ourselves as guest to the guest view
+            const guestItem = document.createElement('li');
+            guestItem.className = 'list-group-item';
+            guestItem.innerHTML = `
+                <i class="fas fa-user player-icon"></i>
+                ${playerUsername}
+                <span class="badge bg-secondary host-badge">Guest</span>
+            `;
+            elements.join.joinedPlayersList.appendChild(guestItem);
+        }
+        
+        // Ensure the proper sections are visible
+        if (isHost) {
+            elements.create.roomPlayers.style.display = 'block';
+        } else {
+            elements.join.joinedRoomPlayers.style.display = 'block';
+        }
+    }
+
+    // Reset room state
+    function resetRoomState() {
+        currentRoomCode = '';
+        isHost = false;
+        
+        // Reset game state
+        gameState = {
+            roundNumber: 0,
+            hostScore: 0,
+            guestScore: 0,
+            yourScore: 0,
+            opponentScore: 0,
+            selectedOption: null,
+            hasAnswered: false,
+            opponentAnswered: false,
+            gameCards: [],
+            currentCardIndex: -1,
+            totalRounds: 10
+        };
+    }
+
+    // Leave the current room
+    function leaveRoom(isCreator) {
+        if (!currentRoomCode) {
+            logMessage('No active room', 'error');
+            return;
+        }
+        
+        logMessage(`Leaving room ${currentRoomCode}...`, 'info');
+        
+        // First send multiple leave messages for redundancy
+        // This ensures the other player is notified even if one message fails
+        
+        // Send leave message to application endpoint
+        stompClient.send(CONFIG.SOCKET.ENDPOINTS.LEAVE, 
+            { 
+                firebaseUid: firebaseUid,
+                roomCode: currentRoomCode 
+            }, 
+            JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now(),
+                isHost: isHost
+            })
+        );
+        
+        // Also send direct message to room topic for redundancy
+        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+            { 
+                firebaseUid: firebaseUid,
+                roomCode: currentRoomCode 
+            }, 
+            JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now(),
+                isHost: isHost
+            })
+        );
+        
+        // Unsubscribe from room topic
+        try {
+            if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
+                stompClient.unsubscribe('room-subscription');
+                logMessage('Unsubscribed from room topic', 'info');
+            }
+        } catch (e) {
+            logMessage(`Error unsubscribing from room: ${e.message}`, 'warning');
+        }
+        
+        // Clear host presence interval if we're the host
+        if (isHost && hostPresenceInterval) {
+            clearInterval(hostPresenceInterval);
+            hostPresenceInterval = null;
+            logMessage('Cleared host presence interval', 'info');
+        }
+        
+        // Reset room state
+        resetRoomState();
+        
+        // Update UI
+        if (isCreator) {
+            // Reset create room view
+            elements.create.roomInfo.style.display = 'none';
+            elements.create.roomPlayers.style.display = 'none';
+            elements.create.startGameBtn.disabled = true;
+            elements.create.playersList.innerHTML = '';
+            
+            // Re-enable create button
+            elements.create.createRoomBtn.disabled = false;
+        } else {
+            // Reset join room view
+            elements.join.joinedRoomInfo.style.display = 'none';
+            elements.join.joinedRoomPlayers.style.display = 'none';
+            elements.join.joinedPlayersList.innerHTML = '';
+            
+            // Show join form again
+            elements.join.joinRoomBtn.style.display = '';
+            elements.join.joinRoomCodeInput.style.display = '';
+            elements.join.joinRoomCodeInput.value = '';
+            elements.join.joinRoomBtn.disabled = false;
+            
+            const joinFormLabel = document.querySelector('label[for="joinRoomCode"]');
+            if (joinFormLabel) {
+                joinFormLabel.style.display = '';
+            }
+        }
+        
+        // Remove any status messages or notifications
+        const statuses = ['joining-status', 'joined-status', 'guest-joined-notification', 'joined-success-notification'];
+        statuses.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.remove();
+            }
+        });
+        
+        logMessage('Left room successfully', 'success');
+        
+        // Display a success message
+        showSuccessToast('Success', 'You have left the room successfully.');
     }
 
     // Start the application

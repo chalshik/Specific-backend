@@ -907,9 +907,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 firebaseUid: firebaseUid,
                 username: playerUsername
             }, JSON.stringify({
-                type: 'ROOM_JOINED',
-                roomCode: roomCode,
-                senderId: firebaseUid,
+            type: 'ROOM_JOINED',
+            roomCode: roomCode,
+            senderId: firebaseUid,
                 senderUsername: playerUsername,
                 timestamp: Date.now()
             }));
@@ -1056,8 +1056,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     { firebaseUid: firebaseUid },
                     JSON.stringify({
                         type: 'ROOM_JOINED',
-                        roomCode: currentRoomCode,
-                        senderId: firebaseUid,
+            roomCode: currentRoomCode,
+            senderId: firebaseUid,
                         senderUsername: playerUsername,
                         timestamp: Date.now(),
                         isHostReply: true, 
@@ -1243,8 +1243,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (isHost && message.senderId !== firebaseUid) {
                         stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
                             type: 'DIAGNOSTIC_RESPONSE',
-                            roomCode: currentRoomCode,
-                            senderId: firebaseUid,
+            roomCode: currentRoomCode,
+            senderId: firebaseUid,
                             senderUsername: playerUsername,
                             timestamp: Date.now(),
                             responseToId: message.senderId
@@ -1315,7 +1315,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (isHost) {
                     gameState.yourScore = syncData.hostScore;
                     gameState.opponentScore = syncData.guestScore;
-                } else {
+        } else {
                     gameState.yourScore = syncData.guestScore;
                     gameState.opponentScore = syncData.hostScore;
                 }
@@ -1356,10 +1356,10 @@ document.addEventListener('DOMContentLoaded', function() {
             gameState.guestScore = syncData.guestScore;
             
             // Update our score display based on whether we're host or guest
-            if (isHost) {
+        if (isHost) {
                 gameState.yourScore = syncData.hostScore;
                 gameState.opponentScore = syncData.guestScore;
-            } else {
+        } else {
                 gameState.yourScore = syncData.guestScore;
                 gameState.opponentScore = syncData.hostScore;
             }
@@ -2020,7 +2020,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Return to lobby after a short delay
             setTimeout(() => {
-                showSection('lobby');
+            showSection('lobby');
                 
                 // Show appropriate message
                 const gameEndedNotification = document.createElement('div');
@@ -2028,7 +2028,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 gameEndedNotification.className = 'alert alert-danger mt-3';
                 gameEndedNotification.innerHTML = `<strong>Game ended:</strong> ${message.senderUsername} left during the game!`;
                 
-                if (isHost) {
+        if (isHost) {
                     elements.create.roomInfo.appendChild(gameEndedNotification);
                 } else {
                     elements.join.joinedRoomInfo.appendChild(gameEndedNotification);
