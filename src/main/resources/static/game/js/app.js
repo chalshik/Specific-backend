@@ -70,7 +70,9 @@ document.addEventListener('DOMContentLoaded', function() {
             cardQuestion: document.getElementById('cardQuestion'),
             optionsContainer: document.getElementById('optionsContainer'),
             answerFeedback: document.getElementById('answerFeedback'),
-            leaveGameBtn: document.getElementById('leaveGameBtn')
+            leaveGameBtn: document.getElementById('leaveGameBtn'),
+            yourLabel: document.getElementById('yourLabel'),
+            opponentLabel: document.getElementById('opponentLabel')
         },
         
         // Results
@@ -1191,6 +1193,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         elements.join.joinRoomBtn.disabled = false;
                     }
                     break;
+                case 'GAME_START_ACK':
+                    // Handle game start acknowledgment from guest players
+                    if (isHost && message.roomCode === currentRoomCode) {
+                        handleGameStartAck(message);
+                    }
+                    break;
                 case 'ROUND_SYNC':
                     // Handle round synchronization to ensure both players are on the same round
                     if (message.roomCode === currentRoomCode && message.senderId !== firebaseUid) {
@@ -1198,6 +1206,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     break;
                 case 'GAME_STARTED':
+                    // Clear any game start timeout
+                    if (window.gameStartTimeout) {
+                        clearTimeout(window.gameStartTimeout);
+                        window.gameStartTimeout = null;
+                        
+                        // Remove loading indicator if it exists
+                        const loadingIndicator = document.getElementById('start-game-loading');
+                        if (loadingIndicator) {
+                            loadingIndicator.remove();
+                        }
+                    }
+                    
                     handleGameStarted(message);
                     break;
                 case 'NEXT_ROUND':
@@ -1377,208 +1397,116 @@ document.addEventListener('DOMContentLoaded', function() {
         
         logMessage('Starting game...', 'info');
         
-        // Send start game message
-        stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, {}, JSON.stringify({
-            type: 'GAME_STARTED',
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername
-        }));
-    }
-
-    // Submit an answer
-    function submitAnswer(optionIndex) {
-        if (gameState.hasAnswered) {
-            return;
-        }
+        // Disable start button to prevent multiple clicks
+        elements.create.startGameBtn.disabled = true;
         
-        logMessage(`Submitting answer: Option ${optionIndex}`, 'info');
+        // Add loading indicator
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.id = 'start-game-loading';
+        loadingIndicator.className = 'spinner-border text-primary mt-2';
+        loadingIndicator.style.width = '1.5rem';
+        loadingIndicator.style.height = '1.5rem';
+        loadingIndicator.setAttribute('role', 'status');
+        loadingIndicator.innerHTML = '<span class="visually-hidden">Loading...</span>';
+        elements.create.startGameBtn.parentNode.appendChild(loadingIndicator);
         
-        // Mark option as selected
-        gameState.selectedOption = optionIndex;
-        gameState.hasAnswered = true;
+        // Send multiple start game messages for redundancy using different channels
         
-        // Disable all option buttons
-        const optionButtons = elements.game.optionsContainer.querySelectorAll('.option-btn');
-        optionButtons.forEach(button => {
-            button.disabled = true;
-            if (parseInt(button.dataset.index) === optionIndex) {
-                button.classList.add('selected');
-            }
-        });
-        
-        // Send answer
-        stompClient.send(
-            CONFIG.SOCKET.ENDPOINTS.SUBMIT_ANSWER,
-            { roomCode: currentRoomCode },
-            optionIndex
-        );
-    }
-
-    // Leave the current room
-    function leaveRoom(isCreator) {
-        if (!currentRoomCode) {
-            logMessage('No active room', 'error');
-            return;
-        }
-        
-        logMessage(`Leaving room ${currentRoomCode}...`, 'info');
-        
-        // First send multiple leave messages for redundancy
-        // This ensures the other player is notified even if one message fails
-        
-        // Send leave message to application endpoint
-        stompClient.send(CONFIG.SOCKET.ENDPOINTS.LEAVE, 
-            { 
+        // 1. Send via application endpoint
+        stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, 
+            {
                 firebaseUid: firebaseUid,
-                roomCode: currentRoomCode 
+                roomCode: currentRoomCode
             }, 
             JSON.stringify({
-                type: 'LEAVE_ROOM',
+                type: 'GAME_STARTED',
                 roomCode: currentRoomCode,
                 senderId: firebaseUid,
                 senderUsername: playerUsername,
-                timestamp: Date.now(),
-                isHost: isHost
+                timestamp: Date.now()
             })
         );
         
-        // Also send direct message to room topic for redundancy
+        // 2. Send directly to room topic for redundancy
         stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-            { 
+            {
                 firebaseUid: firebaseUid,
-                roomCode: currentRoomCode 
+                roomCode: currentRoomCode
             }, 
             JSON.stringify({
-                type: 'LEAVE_ROOM',
+                type: 'GAME_STARTED',
                 roomCode: currentRoomCode,
                 senderId: firebaseUid,
                 senderUsername: playerUsername,
-                timestamp: Date.now(),
-                isHost: isHost
+                timestamp: Date.now()
             })
         );
         
-        // Unsubscribe from room topic
-        try {
-            if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
-                stompClient.unsubscribe('room-subscription');
-                logMessage('Unsubscribed from room topic', 'info');
+        // 3. Try to start game via REST call as well (triple redundancy)
+        fetch(`${CONFIG.REST.ENDPOINTS.START_GAME}?roomCode=${currentRoomCode}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Firebase-UID': firebaseUid
+            },
+            body: JSON.stringify({
+                roomCode: currentRoomCode,
+                hostId: firebaseUid,
+                hostUsername: playerUsername
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                logMessage('REST game start successful', 'success');
+                return response.json();
+            } else {
+                logMessage(`REST game start failed with status: ${response.status}`, 'warning');
+                throw new Error('Failed to start game via REST');
             }
-        } catch (e) {
-            logMessage(`Error unsubscribing from room: ${e.message}`, 'warning');
-        }
-        
-        // Clear host presence interval if we're the host
-        if (isHost && hostPresenceInterval) {
-            clearInterval(hostPresenceInterval);
-            hostPresenceInterval = null;
-            logMessage('Cleared host presence interval', 'info');
-        }
-        
-        // Reset room state
-        resetRoomState();
-        
-        // Update UI
-        if (isCreator) {
-            // Reset create room view
-            elements.create.roomInfo.style.display = 'none';
-            elements.create.roomPlayers.style.display = 'none';
-            elements.create.startGameBtn.disabled = true;
-            elements.create.playersList.innerHTML = '';
-            
-            // Re-enable create button
-            elements.create.createRoomBtn.disabled = false;
-        } else {
-            // Reset join room view
-            elements.join.joinedRoomInfo.style.display = 'none';
-            elements.join.joinedRoomPlayers.style.display = 'none';
-            elements.join.joinedPlayersList.innerHTML = '';
-            
-            // Show join form again
-            elements.join.joinRoomBtn.style.display = '';
-            elements.join.joinRoomCodeInput.style.display = '';
-            elements.join.joinRoomCodeInput.value = '';
-            elements.join.joinRoomBtn.disabled = false;
-            
-            const joinFormLabel = document.querySelector('label[for="joinRoomCode"]');
-            if (joinFormLabel) {
-                joinFormLabel.style.display = '';
-            }
-        }
-        
-        // Remove any status messages or notifications
-        const statuses = ['joining-status', 'joined-status', 'guest-joined-notification', 'joined-success-notification'];
-        statuses.forEach(id => {
-            const element = document.getElementById(id);
-            if (element) {
-                element.remove();
-            }
+        })
+        .then(data => {
+            logMessage(`Game start REST response: ${JSON.stringify(data)}`, 'info');
+            // No additional handling needed since WebSocket handles the game start
+        })
+        .catch(error => {
+            // Errors here aren't critical since we have WebSocket-based retries
+            logMessage(`Game start REST error: ${error.message}`, 'warning');
         });
         
-        logMessage('Left room successfully', 'success');
-        
-        // Display a success message
-        const successToast = document.createElement('div');
-        successToast.className = 'toast show bg-success text-white';
-        successToast.setAttribute('role', 'alert');
-        successToast.setAttribute('aria-live', 'assertive');
-        successToast.setAttribute('aria-atomic', 'true');
-        successToast.style.position = 'fixed';
-        successToast.style.bottom = '20px';
-        successToast.style.right = '20px';
-        successToast.style.minWidth = '250px';
-        successToast.style.zIndex = '1050';
-        
-        successToast.innerHTML = `
-            <div class="toast-header bg-success text-white">
-                <strong class="me-auto">Success</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">
-                You have left the room successfully.
-            </div>
-        `;
-        
-        document.body.appendChild(successToast);
-        
-        // Automatically remove the toast after 3 seconds
-        setTimeout(() => {
-            successToast.remove();
-        }, 3000);
-        
-        // Add close button functionality
-        const closeBtn = successToast.querySelector('.btn-close');
-        closeBtn.addEventListener('click', () => {
-            successToast.remove();
-        });
+        // Set a timeout to handle no acknowledgment
+        window.gameStartTimeout = setTimeout(() => {
+            logMessage('No game start acknowledgment received, triggering local game start', 'warning');
+            handleGameStarted({
+                type: 'GAME_STARTED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now()
+            });
+        }, 5000); // 5 second timeout
     }
-
-    // Leave the current game
-    function leaveGame() {
-        leaveRoom(isHost);
-        showSection('lobby');
-    }
-
-    // Play again (after game ends)
-    function playAgain() {
-        if (isHost) {
-            // Only host can start a new game
-            startGame();
-        } else {
-            showSection('lobby');
+    
+    // Handle game start event
+    function handleGameStarted(message) {
+        // Make sure the message is for our current room
+        if (message.roomCode !== currentRoomCode) {
+            logMessage(`Got game start for room ${message.roomCode} but we're in ${currentRoomCode}, ignoring`, 'warning');
+            return;
         }
-    }
-
-    // Return to lobby (after game ends)
-    function returnToLobby() {
-        showSection('lobby');
-    }
-
-    // Reset room state
-    function resetRoomState() {
-        currentRoomCode = '';
-        isHost = false;
+        
+        logMessage(`Game started by ${message.senderUsername}`, 'success');
+        
+        // Clear any timers
+        if (window.gameStartTimeout) {
+            clearTimeout(window.gameStartTimeout);
+            window.gameStartTimeout = null;
+        }
+        
+        // Remove loading indicator if it exists
+        const loadingIndicator = document.getElementById('start-game-loading');
+        if (loadingIndicator) {
+            loadingIndicator.remove();
+        }
         
         // Reset game state
         gameState = {
@@ -1588,69 +1516,98 @@ document.addEventListener('DOMContentLoaded', function() {
             yourScore: 0,
             opponentScore: 0,
             selectedOption: null,
-            hasAnswered: false
+            hasAnswered: false,
+            opponentAnswered: false,
+            gameCards: [...CONFIG.GAME.CARDS], // Make a copy of the cards
+            currentCardIndex: -1,
+            totalRounds: CONFIG.GAME.TOTAL_ROUNDS
         };
-    }
-
-    // Update players list
-    function updatePlayersList() {
-        // Clear existing lists
-        elements.create.playersList.innerHTML = '';
-        elements.join.joinedPlayersList.innerHTML = '';
         
-        // Add the current player
-        if (isHost) {
-            // Add ourselves as host to the host view
-            const hostItem = document.createElement('li');
-            hostItem.className = 'list-group-item';
-            hostItem.innerHTML = `
-                <i class="fas fa-user player-icon"></i>
-                ${playerUsername}
-                <span class="badge bg-primary host-badge">Host</span>
-            `;
-            elements.create.playersList.appendChild(hostItem);
-            elements.create.startGameBtn.disabled = true; // Disable until guest joins
-        } else {
-            // Add ourselves as guest to the guest view
-            const guestItem = document.createElement('li');
-            guestItem.className = 'list-group-item';
-            guestItem.innerHTML = `
-                <i class="fas fa-user player-icon"></i>
-                ${playerUsername}
-                <span class="badge bg-secondary host-badge">Guest</span>
-            `;
-            elements.join.joinedPlayersList.appendChild(guestItem);
+        // Send acknowledgment if we're a guest
+        if (!isHost) {
+            sendGameStartAcknowledgment();
         }
         
-        // Ensure the proper sections are visible
-        if (isHost) {
-            elements.create.roomPlayers.style.display = 'block';
-        } else {
-            elements.join.joinedRoomPlayers.style.display = 'block';
+        // Deterministically shuffle the cards using room code as seed
+        const seed = currentRoomCode.split('').reduce((acc, char) => {
+            return acc + char.charCodeAt(0);
+        }, 0);
+        
+        deterministicShuffle(gameState.gameCards, seed);
+        
+        // Limit number of cards to total rounds
+        if (gameState.gameCards.length > gameState.totalRounds) {
+            gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
         }
-    }
-
-    // Handle game started message
-    function handleGameStarted(message) {
-        logMessage('Game started', 'success');
         
-        // Reset game state
-        gameState.roundNumber = 0;
-        gameState.hostScore = 0;
-        gameState.guestScore = 0;
-        gameState.yourScore = 0;
-        gameState.opponentScore = 0;
-        gameState.opponentAnswered = false;
-        gameState.hasAnswered = false;
+        // Update UI
+        elements.game.yourScore.textContent = 0;
+        elements.game.opponentScore.textContent = 0;
         
-        // Initialize game cards from static data
-        initializeGameCards();
+        // Update player labels based on host status
+        if (isHost) {
+            elements.game.yourLabel.textContent = 'Host:';
+            elements.game.opponentLabel.textContent = 'Guest:';
+        } else {
+            elements.game.yourLabel.textContent = 'Guest:';
+            elements.game.opponentLabel.textContent = 'Host:';
+        }
         
         // Show game section
         showSection('game');
         
-        // Start the first round
-        startNextRound();
+        // Show a toast notification
+        showSuccessToast('Game started!', 'The game has begun. Good luck!');
+        
+        // Start first round after a short delay to ensure both players are in game view
+        setTimeout(() => {
+            startNextRound();
+        }, 1000);
+    }
+    
+    // Send acknowledgment that guest received game start message
+    function sendGameStartAcknowledgment() {
+        if (stompClient && stompClient.connected && currentRoomCode) {
+            logMessage('Sending game start acknowledgment to host', 'info');
+            
+            // Send directly to room topic
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                {
+                    firebaseUid: firebaseUid,
+                    roomCode: currentRoomCode
+                }, 
+                JSON.stringify({
+                    type: 'GAME_START_ACK',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now()
+                })
+            );
+        }
+    }
+
+    // Handle game start acknowledgment from guests
+    function handleGameStartAck(message) {
+        if (message.roomCode === currentRoomCode && isHost) {
+            logMessage(`Received game start acknowledgment from ${message.senderUsername}`, 'success');
+            
+            // Remove loading indicator if the host is waiting
+            const loadingIndicator = document.getElementById('start-game-loading');
+            if (loadingIndicator) {
+                loadingIndicator.remove();
+            }
+            
+            // Clear any game start timeout as we know the guest received the message
+            if (window.gameStartTimeout) {
+                clearTimeout(window.gameStartTimeout);
+                window.gameStartTimeout = null;
+                logMessage('Cleared game start timeout after receiving acknowledgment', 'info');
+            }
+            
+            // Show success toast to host
+            showSuccessToast(`${message.senderUsername} has joined the game`, 'Game is in progress for both players');
+        }
     }
     
     // Initialize game cards from static data
