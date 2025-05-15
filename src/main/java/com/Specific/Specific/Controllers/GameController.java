@@ -76,24 +76,87 @@ public class GameController {
      * WebSocket endpoint to handle joining a room
      */
     @MessageMapping("/game.join")
-    public void joinRoom(@Payload GameMessage message) {
-        GameRoom room = gameService.joinRoom(message.getRoomCode());
+    public void joinRoom(@Payload GameMessage message, SimpMessageHeaderAccessor headerAccessor) {
+        String roomCode = message.getRoomCode();
+        String senderUsername = message.getSenderUsername();
+        
+        log.info("Received join request for room {}: {}", roomCode, senderUsername);
+        
+        GameRoom room = gameService.getRoom(roomCode);
         
         if (room == null) {
-            sendErrorToUser(message.getSenderUsername(), "Room not found or already full");
+            log.warn("Room not found: {}", roomCode);
+            sendErrorToUser(senderUsername, "Room not found: " + roomCode);
             return;
         }
         
-        // Notify room about the new player
-        GameMessage joinedMessage = new GameMessage();
-        joinedMessage.setType(MessageType.ROOM_JOINED);
-        joinedMessage.setRoomCode(room.getRoomCode());
-        joinedMessage.setSenderId(message.getSenderId());
-        joinedMessage.setSenderUsername(message.getSenderUsername());
-        joinedMessage.setContent(message.getSenderUsername() + " joined the room");
+        if (room.isRoomFull()) {
+            log.warn("Room {} is already full", roomCode);
+            sendErrorToUser(senderUsername, "Room is already full");
+            return;
+        }
         
-        // Send to everyone in the room
-        sendMessageToRoom(room.getRoomCode(), joinedMessage);
+        // Store key information in the session for later use
+        headerAccessor.getSessionAttributes().put("roomCode", roomCode);
+        headerAccessor.getSessionAttributes().put("username", senderUsername);
+        
+        User user = null;
+        
+        try {
+            // Get user from Firebase UID or security context
+            String firebaseUid = headerAccessor.getFirstNativeHeader("firebaseUid");
+            if (firebaseUid != null && !firebaseUid.isEmpty()) {
+                user = userService.findUserByFirebaseUid(firebaseUid);
+            } else {
+                user = securityUtils.getCurrentUser();
+            }
+            
+            if (user == null) {
+                log.warn("User not found for join request: {}", senderUsername);
+                sendErrorToUser(senderUsername, "User not found. Please log in again.");
+                return;
+            }
+            
+            // Update the room with the guest
+            boolean success = gameService.joinUserToRoom(roomCode, user);
+            
+            if (!success) {
+                log.warn("Failed to join room {}: {}", roomCode, senderUsername);
+                sendErrorToUser(senderUsername, "Failed to join room");
+                return;
+            }
+            
+            // Notify room about the new player
+            GameMessage joinedMessage = new GameMessage();
+            joinedMessage.setType(MessageType.ROOM_JOINED);
+            joinedMessage.setRoomCode(room.getRoomCode());
+            joinedMessage.setSenderId(user.getId());
+            joinedMessage.setSenderUsername(senderUsername);
+            joinedMessage.setContent(senderUsername + " joined the room");
+            
+            // Send to everyone in the room including the sender
+            sendMessageToRoom(room.getRoomCode(), joinedMessage);
+            
+            // Also send a direct confirmation to the user who joined
+            sendMessageToUser(senderUsername, joinedMessage);
+            
+            // Notify host directly to ensure they see the guest
+            if (room.getHost() != null && !room.getHost().getUsername().equals(senderUsername)) {
+                GameMessage hostNotification = new GameMessage();
+                hostNotification.setType(MessageType.GUEST_JOINED);
+                hostNotification.setRoomCode(room.getRoomCode());
+                hostNotification.setSenderId(user.getId());
+                hostNotification.setSenderUsername(senderUsername);
+                hostNotification.setContent("Guest " + senderUsername + " joined your room");
+                
+                sendMessageToUser(room.getHost().getUsername(), hostNotification);
+            }
+            
+            log.info("User {} successfully joined room {}", senderUsername, roomCode);
+        } catch (Exception e) {
+            log.error("Error joining room {}: {}", roomCode, e.getMessage(), e);
+            sendErrorToUser(senderUsername, "Error joining room: " + e.getMessage());
+        }
     }
 
     /**
@@ -296,10 +359,17 @@ public class GameController {
      * Helper method to send a message to a room topic
      */
     private void sendMessageToRoom(String roomCode, GameMessage message) {
-        messagingTemplate.convertAndSend(
-            ROOM_TOPIC + roomCode,
-            message
-        );
+        try {
+            log.info("Sending message to room {}: type={}, sender={}", 
+                    roomCode, message.getType(), message.getSenderUsername());
+                    
+            messagingTemplate.convertAndSend(
+                ROOM_TOPIC + roomCode,
+                message
+            );
+        } catch (Exception e) {
+            log.error("Error sending message to room {}: {}", roomCode, e.getMessage(), e);
+        }
     }
 
     /**
@@ -307,20 +377,19 @@ public class GameController {
      */
     @GetMapping("/api/game/room/{roomCode}/exists")
     @ResponseBody
-    public Map<String, Boolean> checkRoomExists(@PathVariable String roomCode) {
-        try {
-            GameRoom room = gameService.getRoom(roomCode);
-            Map<String, Boolean> response = new HashMap<>();
-            response.put("exists", room != null);
-            
-            log.info("Room existence check for {}: {}", roomCode, response.get("exists"));
-            return response;
-        } catch (Exception e) {
-            log.error("Error checking room existence: {}", e.getMessage());
-            Map<String, Boolean> response = new HashMap<>();
-            response.put("exists", false);
-            return response;
+    public Map<String, Object> roomExists(@PathVariable String roomCode) {
+        Map<String, Object> response = new HashMap<>();
+        GameRoom room = gameService.getRoom(roomCode);
+        boolean exists = (room != null);
+        
+        response.put("exists", exists);
+        if (exists) {
+            response.put("isFull", room.isRoomFull());
+            response.put("hostUsername", room.getHost().getUsername());
         }
+        
+        log.info("Room {} exists check: {}", roomCode, exists);
+        return response;
     }
     
     /**
@@ -377,6 +446,23 @@ public class GameController {
         } catch (Exception e) {
             log.error("Error joining room via API: {}", e.getMessage());
             throw e;
+        }
+    }
+
+    /**
+     * Helper method to send a message to a specific user
+     */
+    private void sendMessageToUser(String username, GameMessage message) {
+        try {
+            log.info("Sending direct message to user {}: type={}", username, message.getType());
+            
+            messagingTemplate.convertAndSendToUser(
+                username,
+                PERSONAL_QUEUE,
+                message
+            );
+        } catch (Exception e) {
+            log.error("Error sending message to user {}: {}", username, e.getMessage(), e);
         }
     }
 } 

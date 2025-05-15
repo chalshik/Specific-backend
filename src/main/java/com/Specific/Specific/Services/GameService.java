@@ -262,4 +262,37 @@ public class GameService {
             activeRooms.remove(roomCode);
         }
     }
+
+    /**
+     * Join a specific user to a room as a guest
+     * 
+     * @param roomCode The code of the room to join
+     * @param user The user who will join the room
+     * @return true if joined successfully, false otherwise
+     */
+    public boolean joinUserToRoom(String roomCode, User user) {
+        GameRoom room = activeRooms.get(roomCode);
+        if (room == null) return false;
+        
+        // Prevent joining if already in room
+        if (room.isPlayerInRoom(user)) {
+            return true; // Already in the room, consider it success
+        }
+        
+        // Prevent joining if room is full
+        if (room.isRoomFull()) {
+            return false;
+        }
+        
+        // Join as guest
+        room.setGuest(user);
+        
+        // Get user's cards for the game
+        List<Card> userCards = cardService.getUserCards(user);
+        room.setGuestCards(userCards);
+        
+        room.setLastActivityTimestamp(System.currentTimeMillis());
+        log.info("User {} joined room {} as guest", user.getUsername(), roomCode);
+        return true;
+    }
 } 

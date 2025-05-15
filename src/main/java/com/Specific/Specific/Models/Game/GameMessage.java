@@ -16,7 +16,8 @@ public class GameMessage {
     public enum MessageType {
         JOIN_ROOM,
         ROOM_JOINED,
-        START_GAME,
+        GUEST_JOINED,
+        ROOM_CREATED,
         GAME_STARTED,
         NEXT_ROUND,
         ANSWER_SUBMITTED,

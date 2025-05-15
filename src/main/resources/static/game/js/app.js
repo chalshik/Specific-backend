@@ -650,109 +650,256 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (!roomCode) {
             logMessage('Please enter a room code', 'error');
+            displayError('Please enter a room code');
             return;
         }
         
-        logMessage(`Joining room ${roomCode}...`, 'info');
+        logMessage(`Attempting to join room: ${roomCode}`, 'info');
         
         // Disable join button to prevent multiple attempts
         elements.join.joinRoomBtn.disabled = true;
         
-        try {
-            // Store room information first so messages are processed correctly
-            currentRoomCode = roomCode;
-            isHost = false;
-            
-            // Update UI
-            elements.join.joinedRoomCode.textContent = roomCode;
-            elements.join.joinedRoomInfo.style.display = 'block';
-            
-            // Subscribe to room topic with explicit debug output
-            logMessage(`Subscribing to ${CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode}`, 'info');
-            stompClient.subscribe(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode,
-                function(payload) {
-                    logMessage(`Got room message: ${payload.body.substring(0, 100)}...`, 'info');
-                    onMessageReceived(payload);
-                }
-            );
-            
-            // Debug: Log all subscription destinations
-            if (stompClient.subscriptions) {
-                logMessage(`Current subscriptions: ${Object.keys(stompClient.subscriptions).join(', ')}`, 'info');
+        // Add a loading indicator
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.id = 'join-room-loading';
+        loadingIndicator.className = 'spinner-border text-primary mt-2';
+        loadingIndicator.style.width = '1.5rem';
+        loadingIndicator.style.height = '1.5rem';
+        loadingIndicator.setAttribute('role', 'status');
+        loadingIndicator.innerHTML = '<span class="visually-hidden">Loading...</span>';
+        elements.join.joinRoomBtn.parentNode.appendChild(loadingIndicator);
+        
+        // First verify the room exists
+        fetch(`${CONFIG.API_URL}/api/game/room/${roomCode}/exists`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Firebase-Uid': firebaseUid
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Error checking room. Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (!data.exists) {
+                throw new Error('Room does not exist');
             }
             
-            // IMPORTANT: Send join message to application endpoint FIRST
-            logMessage('Sending explicit JOIN_ROOM message to application endpoint', 'info');
-            stompClient.send(CONFIG.SOCKET.ENDPOINTS.JOIN, {
+            logMessage('Room exists, proceeding with join...', 'success');
+            
+            // Room exists, try to join using server API first
+            return fetch(`${CONFIG.API_URL}/api/game/room/${roomCode}/join`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Firebase-Uid': firebaseUid
+                },
+                body: JSON.stringify({
+                    firebaseUid: firebaseUid,
+                    username: playerUsername
+                })
+            });
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Failed to join room. Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            logMessage(`Successfully joined room ${roomCode} via REST API`, 'success');
+            
+            // REST API join succeeded, now set up WebSocket connectivity
+            attemptJoinRoom(roomCode);
+        })
+        .catch(error => {
+            logMessage(`Error checking/joining room: ${error.message}`, 'error');
+            
+            // Try alternative API URL if primary failed
+            logMessage('Trying alternative API for room join...', 'info');
+            
+            fetch(`${CONFIG.ALT_API_URL}/game/room/${roomCode}/exists`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Firebase-Uid': firebaseUid
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Alternative API error. Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data.exists) {
+                    throw new Error('Room does not exist (alternative check)');
+                }
+                
+                // Room exists, try to join using alternative endpoint
+                return fetch(`${CONFIG.ALT_API_URL}/game/room/${roomCode}/join`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Firebase-Uid': firebaseUid
+                    },
+                    body: JSON.stringify({
+                        firebaseUid: firebaseUid,
+                        username: playerUsername
+                    })
+                });
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Alternative join failed. Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                logMessage(`Successfully joined room ${roomCode} via alternative API`, 'success');
+                
+                // Alternative REST API join succeeded, now set up WebSocket connectivity
+                attemptJoinRoom(roomCode);
+            })
+            .catch(altError => {
+                logMessage(`All join attempts failed: ${altError.message}`, 'error');
+                displayError(`Failed to join room: ${altError.message}`);
+                
+                // Clean up and re-enable button
+                const loadingIndicator = document.getElementById('join-room-loading');
+                if (loadingIndicator) {
+                    loadingIndicator.remove();
+                }
+                elements.join.joinRoomBtn.disabled = false;
+            });
+        });
+    }
+    
+    // Function to handle WebSocket aspects of joining a room
+    function attemptJoinRoom(roomCode) {
+        // Store room information
+        currentRoomCode = roomCode;
+        isHost = false;
+        
+        // Update UI
+        elements.join.joinedRoomCode.textContent = roomCode;
+        elements.join.joinedRoomInfo.style.display = 'block';
+        elements.join.joinedRoomPlayers.style.display = 'block';
+        
+        // Unsubscribe from any previous room topics
+        try {
+            if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
+                stompClient.unsubscribe('room-subscription');
+                logMessage('Unsubscribed from previous room topic', 'info');
+            }
+        } catch (e) {
+            logMessage(`Error unsubscribing: ${e.message}`, 'warning');
+        }
+        
+        // Subscribe to room topic with explicit debug output
+        logMessage(`Subscribing to ${CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode}`, 'info');
+        stompClient.subscribe(
+            CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode,
+            function(payload) {
+                logMessage(`Got room message: ${payload.body.substring(0, 100)}...`, 'info');
+                onMessageReceived(payload);
+            },
+            { id: 'room-subscription' }
+        );
+        
+        // Debug: Log all subscription destinations
+        if (stompClient.subscriptions) {
+            logMessage(`Current subscriptions: ${Object.keys(stompClient.subscriptions).join(', ')}`, 'info');
+        }
+        
+        // IMPORTANT: Send join message to application endpoint
+        logMessage('Sending explicit JOIN_ROOM message to application endpoint', 'info');
+        stompClient.send(CONFIG.SOCKET.ENDPOINTS.JOIN, {
+            firebaseUid: firebaseUid,
+            username: playerUsername,
+            roomCode: roomCode // Add room code to headers for extra reliability
+        }, JSON.stringify({
+            type: 'JOIN_ROOM', // THIS MUST MATCH server expectation
+            roomCode: roomCode,
+            senderId: firebaseUid,
+            senderUsername: playerUsername,
+            timestamp: Date.now()
+        }));
+        
+        // THEN send direct message to room for redundancy
+        setTimeout(function() {
+            logMessage('Sending ROOM_JOINED message directly to room topic', 'info');
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {
                 firebaseUid: firebaseUid,
-                username: playerUsername,
-                roomCode: roomCode // Add room code to headers for extra reliability
+                username: playerUsername
             }, JSON.stringify({
-                type: 'JOIN_ROOM', // THIS MUST MATCH server expectation
+                type: 'ROOM_JOINED',
                 roomCode: roomCode,
                 senderId: firebaseUid,
                 senderUsername: playerUsername,
                 timestamp: Date.now()
             }));
             
-            // THEN send direct message to room for redundancy
-            setTimeout(function() {
-                logMessage('Sending ROOM_JOINED message directly to room topic', 'info');
+            // Also send a GUEST_JOINED message specifically for the host
+            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {
+                firebaseUid: firebaseUid,
+                username: playerUsername
+            }, JSON.stringify({
+                type: 'GUEST_JOINED',
+                roomCode: roomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now()
+            }));
+        }, 500); // Small delay to ensure proper order
+        
+        // Set a timeout to detect if join failed
+        joinResponseTimeout = setTimeout(() => {
+            // If players list is still empty after timeout, likely join failed
+            if (elements.join.joinedPlayersList.children.length <= 1) {
+                logMessage('No host confirmation received, sending another GUEST_JOINED message', 'warning');
+                
+                // Try direct message to room topic again
                 stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {
                     firebaseUid: firebaseUid,
                     username: playerUsername
                 }, JSON.stringify({
-                    type: 'ROOM_JOINED',
+                    type: 'GUEST_JOINED',
                     roomCode: roomCode,
                     senderId: firebaseUid,
                     senderUsername: playerUsername,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    isRetry: true
                 }));
-            }, 500); // Small delay to ensure proper order
-            
-            // Set a timeout to detect if join failed
-            setTimeout(() => {
-                // If players list is still empty after timeout, likely join failed
-                if (elements.join.joinedPlayersList.children.length <= 1) {
-                    logMessage('No host confirmation received, sending another ROOM_JOINED message', 'warning');
-                    
-                    // Try direct message to room topic again
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + roomCode, {
-                        firebaseUid: firebaseUid,
-                        username: playerUsername
-                    }, JSON.stringify({
-                        type: 'ROOM_JOINED',
-                        roomCode: roomCode,
-                        senderId: firebaseUid,
-                        senderUsername: playerUsername,
-                        timestamp: Date.now()
-                    }));
-                    
-                    // Add ourselves to players list anyway as a fallback
-                    if (elements.join.joinedPlayersList.children.length === 0) {
-                        const guestItem = document.createElement('li');
-                        guestItem.className = 'list-group-item';
-                        guestItem.innerHTML = `
-                            <i class="fas fa-user player-icon"></i>
-                            ${playerUsername}
-                            <span class="badge bg-secondary host-badge">Guest</span>
-                        `;
-                        elements.join.joinedPlayersList.appendChild(guestItem);
-                        elements.join.joinedRoomPlayers.style.display = 'block';
-                    }
+                
+                // Add ourselves to players list anyway as a fallback
+                if (elements.join.joinedPlayersList.children.length === 0) {
+                    const guestItem = document.createElement('li');
+                    guestItem.className = 'list-group-item';
+                    guestItem.innerHTML = `
+                        <i class="fas fa-user player-icon"></i>
+                        ${playerUsername} (You)
+                        <span class="badge bg-secondary host-badge">Guest</span>
+                    `;
+                    elements.join.joinedPlayersList.appendChild(guestItem);
+                    logMessage('Added self to player list as fallback', 'info');
                 }
-                
-                // Re-enable join button after a delay
-                setTimeout(() => {
-                    elements.join.joinRoomBtn.disabled = false;
-                }, 1000);
-                
-            }, 3000);
-        } catch (error) {
-            logMessage(`Error joining room: ${error.message}`, 'error');
-            // Re-enable join button if there was an error
-            elements.join.joinRoomBtn.disabled = false;
+            }
+            
+            // Remove loading indicator
+            const loadingIndicator = document.getElementById('join-room-loading');
+            if (loadingIndicator) {
+                loadingIndicator.remove();
+            }
+            
+        }, 3000);
+        
+        // Clear any existing join timeouts
+        if (joinResponseTimeout) {
+            clearTimeout(joinResponseTimeout);
         }
     }
 
@@ -887,6 +1034,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'ROOM_JOINED':
                     handleRoomJoined(message);
                     break;
+                case 'GUEST_JOINED':
+                    // Handle explicit GUEST_JOINED message sent by server specifically to hosts
+                    if (isHost && message.roomCode === currentRoomCode) {
+                        logMessage(`Received specific host notification for guest: ${message.senderUsername}`, 'success');
+                        // Process same as ROOM_JOINED
+                        handleRoomJoined(message);
+                    }
+                    break;
                 case 'GAME_STARTED':
                     handleGameStarted(message);
                     break;
@@ -904,6 +1059,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                 case 'ERROR':
                     handleError(message);
+                    break;
+                case 'DIAGNOSTIC_PING':
+                    logMessage(`Diagnostic ping received from ${message.senderUsername}`, 'info');
+                    // Echo back if we're the host
+                    if (isHost && message.senderId !== firebaseUid) {
+                        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                            type: 'DIAGNOSTIC_RESPONSE',
+                            roomCode: currentRoomCode,
+                            senderId: firebaseUid,
+                            senderUsername: playerUsername,
+                            timestamp: Date.now(),
+                            responseToId: message.senderId
+                        }));
+                    }
+                    break;
+                case 'DIAGNOSTIC_RESPONSE':
+                    if (message.responseToId === firebaseUid) {
+                        logMessage(`Diagnostic response from host: ${message.senderUsername}`, 'success');
+                    }
                     break;
                 default:
                     logMessage(`Unknown message type: ${message.type}`, 'warning');
