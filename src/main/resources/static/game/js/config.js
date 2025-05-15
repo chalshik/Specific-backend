@@ -1,18 +1,18 @@
 /**
- * Configuration for the Specific Card Game
+ * Game Configuration
  */
 const CONFIG = {
     // Backend API URL - Change this to your actual backend URL
-    API_URL: '/api',
+    API_URL: 'https://specific-backend.onrender.com',
     
     // Alternative URLs if the main one doesn't work
-    ALT_API_URL: '',  // Empty string means same domain, different path
+    ALT_API_URL: 'http://localhost:8081',
     
     // Game website URL - Access the game through this URL on your server
     GAME_URL: '/game',
     
     // WebSocket endpoint
-    WS_ENDPOINT: '/ws',
+    WS_ENDPOINT: '/ws-game',
     
     // WebSocket topics and queues
     SOCKET: {
@@ -21,20 +21,19 @@ const CONFIG = {
         ENDPOINTS: {
             JOIN: '/app/game.join',
             START: '/app/game.start',
-            NEXT_ROUND: '/app/game.nextRound',
             SUBMIT_ANSWER: '/app/game.submitAnswer',
+            NEXT_ROUND: '/app/game.nextRound',
             LEAVE: '/app/game.leave'
         }
     },
     
     // Game settings
     GAME: {
+        ROUND_TRANSITION_DELAY: 2000, // milliseconds
         DEFAULT_ROUNDS: 10,
-        ANSWER_TIMEOUT: 20, // seconds
-        ROUND_TRANSITION_DELAY: 3000, // 3 seconds between rounds
-        MAX_ROUNDS: 10
+        ANSWER_TIMEOUT: 20 // seconds
     },
     
-    // Debug mode - set to true to enable console logs
+    // Debug settings
     DEBUG: true
 };
