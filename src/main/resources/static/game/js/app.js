@@ -210,69 +210,123 @@ document.addEventListener('DOMContentLoaded', function() {
         logMessage('Creating offline game session', 'info');
         
         try {
-            // Create a mock stompClient with sanitized send method
-            const originalSend = function(destination, headers, body) {
-                logMessage(`Preparing to send message to ${destination}`, 'info');
-                
-                try {
-                    // Parse the message body to sanitize it
-                    let message = JSON.parse(body);
-                    
-                    // Sanitize nested message structures
-                    if (typeof message.type === 'object') {
-                        logMessage('Intercepted nested message structure before sending', 'warning');
-                        const nestedData = { ...message.type };
-                        const mainType = nestedData.type;
-                        
-                        // Create a new flattened message
-                        const flatMessage = {
-                            ...message,
-                            ...nestedData,
-                            type: mainType  // Make sure type is a string, not an object
-                        };
-                        
-                        // Use the flattened message
-                        message = flatMessage;
-                        logMessage(`Flattened message type: ${message.type}`, 'info');
-                    }
-                    
-                    // Log the sanitized message
-                    logMessage(`Sending sanitized message: ${JSON.stringify(message).substring(0, 100)}...`, 'info');
-                    
-                    // Convert back to string for sending
-                    body = JSON.stringify(message);
-                    
-                    // In offline mode, directly handle messages locally
-                    setTimeout(() => {
-                        // Simulate message echo back
-                        onMessageReceived({
-                            body: body
-                        });
-                    }, 100);
-                } catch (error) {
-                    logMessage(`Error sanitizing message: ${error.message}`, 'error');
-                    // Just use the original body if there was an error
-                }
-            };
-            
-            // Create the mock stompClient with our enhanced send method
+            // Create a completely new implementation of the stompClient for offline use
             stompClient = {
                 connected: true,
+                
+                // Important: Disconnect method
                 disconnect: function() {
                     this.connected = false;
                     logMessage('Disconnected from offline session', 'info');
                     updateConnectionStatus('disconnected');
                 },
-                send: originalSend,
+                
+                // CRITICAL FIX: Completely custom send method that directly serializes strings
+                send: function(destination, headers, body) {
+                    try {
+                        // If body is already a string, parse it to an object first for sanitization
+                        let messageObj;
+                        if (typeof body === 'string') {
+                            try {
+                                messageObj = JSON.parse(body);
+                            } catch (parseErr) {
+                                logMessage(`Warning: Could not parse message body: ${parseErr.message}`, 'warning');
+                                // If we can't parse, just use it as is
+                                messageObj = { content: body };
+                            }
+                        } else {
+                            // Body is already an object
+                            messageObj = body;
+                        }
+                        
+                        // Completely flatten any nested message structure
+                        let flattenedMessage = {};
+                        
+                        // Recursive function to flatten potentially deeply nested objects
+                        function flattenObject(obj, prefix = '') {
+                            for (const key in obj) {
+                                if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                                    const propName = prefix ? `${prefix}.${key}` : key;
+                                    const value = obj[key];
+                                    
+                                    // Special handling for 'type' property 
+                                    if (key === 'type' && typeof value === 'object' && value !== null) {
+                                        // Extract and use the type from the nested object
+                                        if (value.type && typeof value.type === 'string') {
+                                            flattenedMessage.type = value.type;
+                                            
+                                            // Process all other properties in the nested type object
+                                            for (const nestedKey in value) {
+                                                if (nestedKey !== 'type') {
+                                                    flattenedMessage[nestedKey] = value[nestedKey];
+                                                }
+                                            }
+                                        }
+                                    } 
+                                    // Normal case: flat property
+                                    else if (typeof value !== 'object' || value === null) {
+                                        flattenedMessage[key] = value;
+                                    } 
+                                    // Handle nested objects that aren't 'type'
+                                    else if (Array.isArray(value)) {
+                                        flattenedMessage[key] = [...value]; // Keep arrays as arrays
+                                    } 
+                                    else {
+                                        // For other objects (not type), keep them as separate objects but scan for type
+                                        flattenedMessage[key] = value;
+                                        // Recursively check for { type: { ... } } pattern in nested objects
+                                        flattenObject(value, propName);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Apply the flattening function
+                        flattenObject(messageObj);
+                        
+                        // Ensure type is a string, not an object
+                        if (typeof flattenedMessage.type === 'object' && flattenedMessage.type !== null) {
+                            // This shouldn't happen after flattening, but just in case
+                            logMessage('Found nested type after flattening - fixing', 'warning');
+                            if (flattenedMessage.type.type && typeof flattenedMessage.type.type === 'string') {
+                                flattenedMessage.type = flattenedMessage.type.type;
+                            } else {
+                                flattenedMessage.type = 'UNKNOWN';
+                            }
+                        }
+                        
+                        logMessage(`Sending message to ${destination}: ${flattenedMessage.type}`, 'info');
+                        
+                        // Now stringify the flattened message
+                        const sanitizedBody = JSON.stringify(flattenedMessage);
+                        
+                        // Log the fully-safe message for debugging
+                        logMessage(`Sanitized message: ${sanitizedBody.substring(0, 100)}...`, 'debug');
+                        
+                        // In offline mode, directly handle messages locally
+                        setTimeout(() => {
+                            // Simulate message echo back to self
+                            onMessageReceived({
+                                body: sanitizedBody
+                            });
+                        }, 100);
+                    } catch (error) {
+                        logMessage(`Error in send method: ${error.message}`, 'error');
+                    }
+                },
+                
+                // Subscribe method
                 subscribe: function(destination, callback, headers) {
                     logMessage(`Subscribed to ${destination}`, 'info');
                     return {
-                        id: headers.id || 'offline-subscription',
+                        id: headers?.id || 'offline-subscription',
                         unsubscribe: function() {
                             logMessage(`Unsubscribed from ${destination}`, 'info');
                         }
                     };
                 },
+                
+                // Mock subscriptions object
                 subscriptions: {}
             };
             
@@ -1067,12 +1121,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const rawMessage = payload.body;
             logMessage(`Raw message received: ${rawMessage.substring(0, 100)}...`, 'debug');
             
-            // Try to parse and sanitize the message
+            // Try to parse and sanitize the message with comprehensive error handling
             let message;
             try {
                 message = JSON.parse(rawMessage);
                 
-                // GLOBAL FIX: Recursively unnest any type of nested structure
+                // ROBUST UNNESTING: Recursively unnest any type of nested structure
                 function unnestMessage(msg) {
                     // Base case: not an object or null
                     if (!msg || typeof msg !== 'object') return msg;
@@ -1082,62 +1136,80 @@ document.addEventListener('DOMContentLoaded', function() {
                         return msg.map(unnestMessage);
                     }
                     
-                    // Check for nested type pattern
+                    // Create a new object to hold the unnested result
+                    const result = {};
+                    
+                    // First pass - extract nested type object if present
                     if (typeof msg.type === 'object' && msg.type !== null) {
-                        logMessage('Found nested type structure: ' + JSON.stringify(msg.type).substring(0, 50) + '...', 'warning');
+                        logMessage('Found nested type structure - unnesting', 'warning');
                         
-                        // Create a new unnested object with properties from both levels
-                        const result = { ...msg };
-                        
-                        // Remove the object type and merge its properties
-                        delete result.type;
-                        
-                        // Merge nested properties, giving preference to the inner object
-                        Object.entries(msg.type).forEach(([key, value]) => {
-                            result[key] = value;
-                        });
-                        
-                        return unnestMessage(result); // Process again in case of multi-level nesting
+                        // Extract the type string if available
+                        if (msg.type.type && typeof msg.type.type === 'string') {
+                            result.type = msg.type.type;
+                            
+                            // Merge other properties from the nested type object
+                            for (const key in msg.type) {
+                                if (key !== 'type' && !result.hasOwnProperty(key)) {
+                                    result[key] = msg.type[key];
+                                }
+                            }
+                        } else {
+                            // No valid type found in the nested object
+                            result.type = 'UNKNOWN';
+                            logMessage('Could not extract valid type from nested object', 'error');
+                        }
+                    } else if (msg.type) {
+                        // Normal case - type is already a string
+                        result.type = msg.type;
                     }
                     
-                    // Process all nested objects recursively
-                    const result = {};
-                    Object.entries(msg).forEach(([key, value]) => {
-                        result[key] = unnestMessage(value);
-                    });
+                    // Second pass - copy all top-level properties except 'type' which we already handled
+                    for (const key in msg) {
+                        if (key !== 'type') {
+                            const value = msg[key];
+                            
+                            // Handle nested objects recursively
+                            if (value && typeof value === 'object') {
+                                result[key] = unnestMessage(value);
+                            } else {
+                                result[key] = value;
+                            }
+                        }
+                    }
                     
                     return result;
                 }
                 
-                // Apply the unnesting function
+                // Apply the comprehensive unnesting
                 message = unnestMessage(message);
                 
-                // Validate message has required fields
+                // Validate the message has a proper type
                 if (!message.type || typeof message.type !== 'string') {
-                    logMessage(`Message without proper type after unnesting: ${JSON.stringify(message).substring(0, 100)}...`, 'error');
+                    // Fallback extraction from the raw message if type is missing
+                    logMessage('Message missing proper type after unnesting - attempting recovery', 'error');
                     
-                    // Try to extract type from the raw string if not found after parsing
                     const typeMatch = /"type"\s*:\s*"([^"]+)"/.exec(rawMessage);
                     if (typeMatch && typeMatch[1]) {
-                        const extractedType = typeMatch[1];
-                        logMessage(`Extracted message type from raw payload: ${extractedType}`, 'info');
-                        
-                        // Set the type in the message
-                        message.type = extractedType;
+                        message.type = typeMatch[1];
+                        logMessage(`Recovered message type from raw JSON: ${message.type}`, 'info');
                     } else {
-                        // If we can't find a type, try to infer from content
+                        // Last resort - try to infer from content
                         if (rawMessage.includes('ANSWER_SUBMITTED')) {
                             message.type = 'ANSWER_SUBMITTED';
-                            logMessage('Inferred type as ANSWER_SUBMITTED from content', 'info');
-                        } else if (rawMessage.includes('GAME_START_ACK')) {
-                            message.type = 'GAME_START_ACK';
-                            logMessage('Inferred type as GAME_START_ACK from content', 'info');
+                            logMessage('Inferred type as ANSWER_SUBMITTED from raw content', 'info');
+                        } else if (rawMessage.includes('GAME_STARTED')) {
+                            message.type = 'GAME_STARTED';
+                            logMessage('Inferred type as GAME_STARTED from raw content', 'info');
+                        } else if (rawMessage.includes('NEXT_ROUND')) {
+                            message.type = 'NEXT_ROUND';
+                            logMessage('Inferred type as NEXT_ROUND from raw content', 'info');
                         } else if (rawMessage.includes('ROUND_SYNC')) {
                             message.type = 'ROUND_SYNC';
-                            logMessage('Inferred type as ROUND_SYNC from content', 'info');
+                            logMessage('Inferred type as ROUND_SYNC from raw content', 'info');
                         } else {
-                            logMessage('Could not determine message type', 'error');
-                            return;
+                            // Unable to determine the type, use generic
+                            message.type = 'UNKNOWN';
+                            logMessage('Could not determine message type, using UNKNOWN', 'error');
                         }
                     }
                 }
@@ -1151,70 +1223,51 @@ document.addEventListener('DOMContentLoaded', function() {
                 logMessage(`Processed message type: ${message.type}`, 'info');
             } catch (parseError) {
                 logMessage(`Error parsing message: ${parseError.message}`, 'error');
-                logMessage(`Problematic payload: ${rawMessage.substring(0, 100)}...`, 'error');
+                logMessage(`Attempting deep recovery of problematic payload`, 'warning');
                 
-                // Try extreme recovery measures for common message types
-                try {
-                    // Check for common message types in the raw payload
-                    if (rawMessage.includes('ANSWER_SUBMITTED')) {
-                        logMessage('Recovery: Creating minimal ANSWER_SUBMITTED message', 'warning');
-                        
-                        message = {
-                            type: 'ANSWER_SUBMITTED',
-                            roomCode: currentRoomCode,
-                            senderUsername: 'Opponent',
-                            hostScore: gameState.hostScore,
-                            guestScore: gameState.guestScore,
-                            timestamp: Date.now(),
-                            hasAnswered: true
-                        };
-                        
-                        // Try to extract scores if possible
-                        const hostScoreMatch = /hostScore"?\s*:\s*(\d+)/.exec(rawMessage);
-                        const guestScoreMatch = /guestScore"?\s*:\s*(\d+)/.exec(rawMessage);
-                        
-                        if (hostScoreMatch) {
-                            message.hostScore = parseInt(hostScoreMatch[1]);
-                        }
-                        
-                        if (guestScoreMatch) {
-                            message.guestScore = parseInt(guestScoreMatch[1]);
-                        }
-                    } else if (rawMessage.includes('GAME_START_ACK')) {
-                        logMessage('Recovery: Creating minimal GAME_START_ACK message', 'warning');
-                        
-                        message = {
-                            type: 'GAME_START_ACK',
-                            roomCode: currentRoomCode,
-                            senderUsername: 'Guest',
-                            timestamp: Date.now()
-                        };
-                    } else if (rawMessage.includes('ROUND_SYNC')) {
-                        logMessage('Recovery: Creating minimal ROUND_SYNC message', 'warning');
-                        
-                        message = {
-                            type: 'ROUND_SYNC',
-                            roomCode: currentRoomCode,
-                            roundNumber: gameState.roundNumber,
-                            currentCardIndex: gameState.currentCardIndex,
-                            hostScore: gameState.hostScore,
-                            guestScore: gameState.guestScore,
-                            timestamp: Date.now()
-                        };
-                        
-                        // Try to extract round info
-                        const roundMatch = /roundNumber"?\s*:\s*(\d+)/.exec(rawMessage);
-                        if (roundMatch) {
-                            message.roundNumber = parseInt(roundMatch[1]);
-                        }
-                    } else {
-                        // Cannot recover, abort
-                        logMessage('Unable to recover message. Skipping processing.', 'error');
-                        return;
-                    }
-                } catch (recoveryError) {
-                    logMessage(`Failed to recover message: ${recoveryError.message}`, 'error');
-                    return;
+                // Create a minimal recovery object
+                message = {
+                    roomCode: currentRoomCode,
+                    timestamp: Date.now()
+                };
+                
+                // Advanced recovery for common message types using regex patterns
+                if (rawMessage.includes('ANSWER_SUBMITTED')) {
+                    message.type = 'ANSWER_SUBMITTED';
+                    
+                    // Try to extract key properties with regex
+                    const usernameMatch = /"senderUsername"\s*:\s*"([^"]+)"/.exec(rawMessage);
+                    const hostScoreMatch = /"hostScore"\s*:\s*(\d+)/.exec(rawMessage);
+                    const guestScoreMatch = /"guestScore"\s*:\s*(\d+)/.exec(rawMessage);
+                    
+                    if (usernameMatch) message.senderUsername = usernameMatch[1];
+                    if (hostScoreMatch) message.hostScore = parseInt(hostScoreMatch[1]);
+                    if (guestScoreMatch) message.guestScore = parseInt(guestScoreMatch[1]);
+                    
+                    message.hasAnswered = true;
+                    logMessage('Recovered basic ANSWER_SUBMITTED message', 'info');
+                } else if (rawMessage.includes('ROUND_SYNC')) {
+                    message.type = 'ROUND_SYNC';
+                    
+                    // Extract round info
+                    const roundMatch = /"roundNumber"\s*:\s*(\d+)/.exec(rawMessage);
+                    const cardIndexMatch = /"currentCardIndex"\s*:\s*(\d+)/.exec(rawMessage);
+                    
+                    if (roundMatch) message.roundNumber = parseInt(roundMatch[1]);
+                    if (cardIndexMatch) message.currentCardIndex = parseInt(cardIndexMatch[1]);
+                    
+                    // Use current game state for missing values
+                    message.hostScore = gameState.hostScore;
+                    message.guestScore = gameState.guestScore;
+                    
+                    logMessage('Recovered basic ROUND_SYNC message', 'info');
+                } else if (rawMessage.includes('GAME_STARTED')) {
+                    message.type = 'GAME_STARTED';
+                    logMessage('Recovered basic GAME_STARTED message', 'info');
+                } else {
+                    // Can't determine the message type clearly
+                    message.type = 'UNKNOWN';
+                    logMessage('Unable to recover message. Using generic UNKNOWN type.', 'warning');
                 }
             }
             
@@ -2182,28 +2235,24 @@ document.addEventListener('DOMContentLoaded', function() {
             gameState.lastSyncTimestamp = now;
             gameState.syncAttempts++;
             
-            // CRITICAL FIX: Create a simple string message to avoid any possibility of nesting
-            // First create the object
-            const syncData = {
-                type: "ROUND_SYNC",
-                roomCode: currentRoomCode,
-                roundNumber: gameState.roundNumber,
-                currentCardIndex: gameState.currentCardIndex,
-                hostScore: gameState.hostScore,
-                guestScore: gameState.guestScore,
-                timestamp: now,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                hasAnswered: gameState.hasAnswered,
-                opponentAnswered: gameState.opponentAnswered,
-                syncAttempt: gameState.syncAttempts
-            };
-            
-            // Then stringify it directly
-            const simplifiedMessage = JSON.stringify(syncData);
+            // CRITICAL FIX: Create sync message with direct string construction to avoid nesting
+            const directJsonString = `{
+                "type": "ROUND_SYNC",
+                "roomCode": "${currentRoomCode}",
+                "roundNumber": ${gameState.roundNumber},
+                "currentCardIndex": ${gameState.currentCardIndex},
+                "hostScore": ${gameState.hostScore},
+                "guestScore": ${gameState.guestScore},
+                "timestamp": ${now},
+                "senderId": "${firebaseUid}",
+                "senderUsername": "${playerUsername}",
+                "hasAnswered": ${gameState.hasAnswered},
+                "opponentAnswered": ${gameState.opponentAnswered},
+                "syncAttempt": ${gameState.syncAttempts}
+            }`;
             
             // Log for debugging
-            logMessage(`Sending round sync (${gameState.syncAttempts}): ${simplifiedMessage.substring(0, 50)}...`, 'debug');
+            logMessage(`Sending round sync (${gameState.syncAttempts})`, 'debug');
             
             try {
                 // Send message to room using the pre-stringified message
@@ -2213,589 +2262,33 @@ document.addEventListener('DOMContentLoaded', function() {
                         firebaseUid: firebaseUid,
                         roomCode: currentRoomCode
                     },
-                    simplifiedMessage
+                    directJsonString
                 );
                 
                 logMessage(`Sent round sync for round ${gameState.roundNumber}, attempt ${gameState.syncAttempts}`, 'info');
             } catch (sendError) {
                 logMessage(`Error sending sync: ${sendError.message}`, 'error');
+                
+                // Try again after a short delay with error handling
+                setTimeout(() => {
+                    try {
+                        stompClient.send(
+                            CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
+                            { 
+                                firebaseUid: firebaseUid,
+                                roomCode: currentRoomCode
+                            },
+                            directJsonString
+                        );
+                        logMessage(`Retry sending round sync succeeded`, 'success');
+                    } catch (retryError) {
+                        logMessage(`Retry sending sync failed: ${retryError.message}`, 'error');
+                    }
+                }, 500);
             }
         } catch (error) {
             logMessage(`Error preparing round sync: ${error.message}`, 'error');
         }
-    }
-
-    // Submit answer locally
-    function submitAnswerLocally(selectedOption) {
-        if (gameState.hasAnswered) {
-            return;
-        }
-        
-        const currentCard = gameState.gameCards[gameState.currentCardIndex];
-        const isCorrect = selectedOption === currentCard.back;
-        
-        // Update score
-        if (isCorrect) {
-            gameState.yourScore++;
-            if (isHost) {
-                gameState.hostScore++;
-            } else {
-                gameState.guestScore++;
-            }
-        }
-        
-        // Mark as answered
-        gameState.hasAnswered = true;
-        gameState.selectedOption = selectedOption;
-        gameState.lastAnswerTime = Date.now();
-        
-        // Update UI
-        elements.game.yourScore.textContent = gameState.yourScore;
-        
-        // Show feedback
-        const optionButtons = elements.game.optionsContainer.querySelectorAll('.option-btn');
-        optionButtons.forEach(button => {
-            const optionValue = button.dataset.value;
-            
-            // Disable all buttons
-            button.disabled = true;
-            
-            // Mark selected option
-            if (optionValue === selectedOption) {
-                if (isCorrect) {
-                    button.classList.add('correct');
-                } else {
-                    button.classList.add('incorrect');
-                }
-            }
-            
-            // Mark correct answer if user selected wrong
-            if (optionValue === currentCard.back && !isCorrect) {
-                button.classList.add('correct');
-            }
-        });
-        
-        // Show answer feedback
-        elements.game.answerFeedback.style.display = 'block';
-        if (isCorrect) {
-            elements.game.answerFeedback.className = 'alert alert-success';
-            elements.game.answerFeedback.textContent = 'Correct! +1 point';
-        } else {
-            elements.game.answerFeedback.className = 'alert alert-danger';
-            elements.game.answerFeedback.textContent = `Incorrect. The correct answer is: ${currentCard.back}`;
-        }
-        
-        // CRITICAL FIX: Create a simple string message to avoid nested structures
-        const simplifiedMessage = JSON.stringify({
-            type: "ANSWER_SUBMITTED",
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername,
-            content: selectedOption,
-            hostScore: gameState.hostScore,
-            guestScore: gameState.guestScore,
-            isCorrect: isCorrect,
-            timestamp: Date.now(),
-            roundNumber: gameState.roundNumber,
-            currentCardIndex: gameState.currentCardIndex,
-            hasAnswered: true
-        });
-        
-        // Send answer to room directly for more reliable delivery
-        if (stompClient && stompClient.connected) {
-            try {
-                // Use manual string message to avoid any chance of nested structure
-                logMessage("Sending ANSWER_SUBMITTED with simplified format", "info");
-                
-                // Send directly to room topic with minimal headers
-                stompClient.send(
-                    CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
-                    { roomCode: currentRoomCode },
-                    simplifiedMessage
-                );
-                
-                // For debug only, log what we're sending
-                logMessage(`Answer message sent: ${simplifiedMessage.substring(0, 100)}...`, 'debug');
-            } catch (sendError) {
-                logMessage(`Error sending answer: ${sendError.message}`, 'error');
-            }
-        }
-        
-        // If opponent has already answered, show indicator that we're moving to next round
-        if (gameState.opponentAnswered) {
-            logMessage('Both players have now answered', 'success');
-            
-            // Remove any waiting indicators
-            const waitingIndicator = document.getElementById('waiting-indicator');
-            if (waitingIndicator) {
-                waitingIndicator.remove();
-            }
-            
-            // Add moving to next round indicator
-            const nextRoundIndicator = document.createElement('div');
-            nextRoundIndicator.id = 'next-round-indicator';
-            nextRoundIndicator.className = 'alert alert-info mt-3';
-            nextRoundIndicator.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                    <span>Both players answered! Moving to next question...</span>
-                </div>
-            `;
-            elements.game.answerFeedback.after(nextRoundIndicator);
-            
-            // Schedule next round with a deliberate pause
-            if (window.nextRoundTimeout) {
-                clearTimeout(window.nextRoundTimeout);
-            }
-            
-            window.nextRoundTimeout = setTimeout(() => {
-                startNextRound();
-                // Send immediate sync message to confirm round change to other player
-                setTimeout(sendRoundSyncMessage, 200);
-            }, CONFIG.GAME.ROUND_TRANSITION_DELAY || 2000);
-        } else {
-            // If opponent hasn't answered yet, show waiting indicator
-            const waitingIndicator = document.createElement('div');
-            waitingIndicator.id = 'waiting-indicator';
-            waitingIndicator.className = 'alert alert-warning mt-3';
-            waitingIndicator.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                    <span>Waiting for opponent to answer...</span>
-                </div>
-            `;
-            elements.game.answerFeedback.after(waitingIndicator);
-            
-            // Set a backup timeout to move to next round in case opponent message is lost
-            window.answerSyncTimeout = setTimeout(() => {
-                if (!gameState.opponentAnswered) {
-                    logMessage('No opponent answer received after timeout, forcing next round', 'warning');
-                    gameState.opponentAnswered = true; // Mark as answered anyway
-                    
-                    // Remove waiting indicators
-                    const waitingIndicator = document.getElementById('waiting-indicator');
-                    if (waitingIndicator) {
-                        waitingIndicator.remove();
-                    }
-                    
-                    // Start next round
-                    startNextRound();
-                }
-            }, 10000); // 10 second timeout as a safety fallback
-        }
-        
-        logMessage(`You answered: ${selectedOption} (${isCorrect ? 'Correct' : 'Incorrect'})`, 'info');
-    }
-    
-    // Handle answer submitted message from opponent
-    function handleAnswerSubmitted(message) {
-        // Mark opponent as answered
-        gameState.opponentAnswered = true;
-        
-        // Update scores
-        gameState.hostScore = message.hostScore;
-        gameState.guestScore = message.guestScore;
-        
-        // Update opponent score based on whether we're host or guest
-        if (isHost) {
-            gameState.opponentScore = message.guestScore;
-        } else {
-            gameState.opponentScore = message.hostScore;
-        }
-        
-        // Update UI
-        elements.game.opponentScore.textContent = gameState.opponentScore;
-        
-        
-        logMessage(`${message.senderUsername} submitted answer: ${message.content}`, 'info');
-        
-        // If we've already answered, move to next round after delay
-        if (gameState.hasAnswered) {
-            logMessage('Both players have answered. Moving to next round...', 'success');
-            
-            // Add a clear visual indicator that we're advancing
-            const waitingIndicator = document.createElement('div');
-            waitingIndicator.className = 'alert alert-info';
-            waitingIndicator.textContent = 'Both players answered! Moving to next question...';
-            elements.game.answerFeedback.after(waitingIndicator);
-            
-            // Clear any existing timeouts to avoid multiple next rounds
-            if (window.nextRoundTimeout) {
-                clearTimeout(window.nextRoundTimeout);
-            }
-            
-            // Set a deliberate delay then move to next round
-            window.nextRoundTimeout = setTimeout(() => {
-                startNextRound();
-                // Send immediate sync message to confirm round change to other player
-                setTimeout(sendRoundSyncMessage, 200);
-            }, CONFIG.GAME.ROUND_TRANSITION_DELAY || 2000);
-        } else {
-            // Show waiting indicator
-            if (!document.getElementById('waiting-indicator')) {
-                const waitingIndicator = document.createElement('div');
-                waitingIndicator.id = 'waiting-indicator';
-                waitingIndicator.className = 'alert alert-warning mt-3';
-                waitingIndicator.innerHTML = `
-                    <div class="d-flex align-items-center">
-                        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                        <span>Opponent has answered. Waiting for you to answer...</span>
-                    </div>
-                `;
-                elements.game.answerFeedback.after(waitingIndicator);
-            }
-        }
-    }
-    
-    // End the game locally
-    function endGame() {
-        // Determine the winner
-        let winnerUsername;
-        let isWinner = false;
-        
-        if (gameState.hostScore > gameState.guestScore) {
-            winnerUsername = isHost ? playerUsername : 'Opponent';
-            isWinner = isHost;
-        } else if (gameState.guestScore > gameState.hostScore) {
-            winnerUsername = !isHost ? playerUsername : 'Opponent';
-            isWinner = !isHost;
-        } else {
-            winnerUsername = 'Draw';
-        }
-        
-        // Create game result
-        const gameResult = {
-            roomCode: currentRoomCode,
-            hostUsername: isHost ? playerUsername : 'Opponent',
-            guestUsername: !isHost ? playerUsername : 'Opponent',
-            hostScore: gameState.hostScore,
-            guestScore: gameState.guestScore,
-            winnerUsername: winnerUsername
-        };
-        
-        // Show game over message
-        handleGameOver({
-            type: 'GAME_OVER',
-            gameResult: gameResult
-        });
-        
-        // Notify the other player
-        if (stompClient && stompClient.connected) {
-            stompClient.send('/app/game.endGame', 
-                { roomCode: currentRoomCode }, 
-                JSON.stringify({
-                    type: 'GAME_OVER',
-                    roomCode: currentRoomCode,
-                    gameResult: gameResult
-                })
-            );
-        }
-    }
-
-    // Handle game over message
-    function handleGameOver(message) {
-        const result = message.gameResult;
-        
-        // Update final scores
-        if (isHost) {
-            elements.results.player1Name.textContent = result.hostUsername + ' (You)';
-            elements.results.player1Score.textContent = result.hostScore;
-            elements.results.player2Name.textContent = result.guestUsername;
-            elements.results.player2Score.textContent = result.guestScore;
-            
-            // Determine if we won
-            if (result.hostScore > result.guestScore) {
-                elements.results.winnerText.textContent = 'You Won!';
-                elements.results.winnerDisplay.className = 'alert alert-success mb-4';
-            } else if (result.hostScore < result.guestScore) {
-                elements.results.winnerText.textContent = 'You Lost!';
-                elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
-            } else {
-                elements.results.winnerText.textContent = 'It\'s a Draw!';
-                elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
-            }
-        } else {
-            elements.results.player1Name.textContent = result.hostUsername;
-            elements.results.player1Score.textContent = result.hostScore;
-            elements.results.player2Name.textContent = result.guestUsername + ' (You)';
-            elements.results.player2Score.textContent = result.guestScore;
-            
-            // Determine if we won
-            if (result.guestScore > result.hostScore) {
-                elements.results.winnerText.textContent = 'You Won!';
-                elements.results.winnerDisplay.className = 'alert alert-success mb-4';
-            } else if (result.guestScore < result.hostScore) {
-                elements.results.winnerText.textContent = 'You Lost!';
-                elements.results.winnerDisplay.className = 'alert alert-danger mb-4';
-            } else {
-                elements.results.winnerText.textContent = 'It\'s a Draw!';
-                elements.results.winnerDisplay.className = 'alert alert-warning mb-4';
-            }
-        }
-        
-        // Show results section
-        showSection('results');
-        
-        logMessage('Game over', 'info');
-    }
-
-    // Handle player left message
-    function handlePlayerLeft(message) {
-        logMessage(`${message.senderUsername} left the room`, 'info');
-        
-        const isHostLeft = message.isHost === true;
-        const isHostMessage = message.isHost === true && message.senderUsername !== playerUsername;
-        const isGuestMessage = !message.isHost && message.senderUsername !== playerUsername;
-        
-        // Show a notification that the other player left
-        const leftNotification = document.createElement('div');
-        leftNotification.id = 'player-left-notification';
-        leftNotification.className = 'alert alert-warning mt-3';
-        leftNotification.innerHTML = `<strong>${message.senderUsername}</strong> has left the room!`;
-        
-        // Add notification to appropriate container
-        if (isHost) {
-            elements.create.roomInfo.appendChild(leftNotification);
-            
-            // If we're host, remove the guest from our list
-            if (isGuestMessage) {
-                const guestItems = Array.from(elements.create.playersList.children);
-                guestItems.forEach(item => {
-                    if (item.textContent.includes(message.senderUsername)) {
-                        item.remove();
-                        logMessage(`Removed ${message.senderUsername} from host player list`, 'info');
-                    }
-                });
-                
-                // Disable start button since guest left
-                elements.create.startGameBtn.disabled = true;
-            }
-        } else {
-            elements.join.joinedRoomInfo.appendChild(leftNotification);
-            
-            // If we're guest and host left, show special message
-            if (isHostMessage) {
-                leftNotification.className = 'alert alert-danger mt-3';
-                leftNotification.innerHTML = `<strong>The host ${message.senderUsername} has left the room!</strong><br>You'll need to join another room.`;
-                
-                // Remove host from player list
-                const hostItems = Array.from(elements.join.joinedPlayersList.children);
-                hostItems.forEach(item => {
-                    if (item.textContent.includes('Host')) {
-                        item.remove();
-                        logMessage('Removed host from guest player list', 'info');
-                    }
-                });
-                
-                // Schedule auto return to lobby form
-                setTimeout(() => {
-                    leaveRoom(false);
-                }, 5000);
-            }
-        }
-        
-        // Auto-remove notification after 5 seconds
-        setTimeout(() => {
-            const notification = document.getElementById('player-left-notification');
-            if (notification) {
-                notification.remove();
-            }
-        }, 5000);
-        
-        // If we're in a game, handle differently
-        if (elements.sections.game.classList.contains('active')) {
-            // If opponent left during game
-            displayError(`${message.senderUsername} left the game.`);
-            
-            // Return to lobby after a short delay
-            setTimeout(() => {
-            showSection('lobby');
-                
-                // Show appropriate message
-                const gameEndedNotification = document.createElement('div');
-                gameEndedNotification.id = 'game-ended-notification';
-                gameEndedNotification.className = 'alert alert-danger mt-3';
-                gameEndedNotification.innerHTML = `<strong>Game ended:</strong> ${message.senderUsername} left during the game!`;
-                
-        if (isHost) {
-                    elements.create.roomInfo.appendChild(gameEndedNotification);
-                } else {
-                    elements.join.joinedRoomInfo.appendChild(gameEndedNotification);
-                }
-                
-                // Remove notification after a delay
-                setTimeout(() => {
-                    const notification = document.getElementById('game-ended-notification');
-                    if (notification) {
-                        notification.remove();
-                    }
-                }, 5000);
-            }, 2000);
-        }
-    }
-
-    // Handle error message
-    function handleError(message) {
-        const errorContent = message.content || 'Unknown error';
-        logMessage(`Error: ${errorContent}`, 'error');
-        
-        // Display error to user with a toast/alert
-        const errorToast = document.createElement('div');
-        errorToast.className = 'toast show bg-danger text-white';
-        errorToast.setAttribute('role', 'alert');
-        errorToast.setAttribute('aria-live', 'assertive');
-        errorToast.setAttribute('aria-atomic', 'true');
-        errorToast.style.position = 'fixed';
-        errorToast.style.bottom = '20px';
-        errorToast.style.right = '20px';
-        errorToast.style.minWidth = '250px';
-        errorToast.style.zIndex = '1050';
-        
-        errorToast.innerHTML = `
-            <div class="toast-header bg-danger text-white">
-                <strong class="me-auto">Error</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">
-                ${errorContent}
-            </div>
-        `;
-        
-        document.body.appendChild(errorToast);
-        
-        // Automatically remove the toast after 5 seconds
-        setTimeout(() => {
-            errorToast.remove();
-        }, 5000);
-        
-        // Close button functionality
-        const closeBtn = errorToast.querySelector('.btn-close');
-        closeBtn.addEventListener('click', () => {
-            errorToast.remove();
-        });
-        
-        // Handle specific error types
-        if (errorContent.includes('Room not found') || errorContent.includes('already full')) {
-            // Reset room state if we tried to join a non-existent or full room
-            if (!isHost) {
-                resetRoomState();
-                elements.join.joinRoomBtn.disabled = false;
-                elements.join.joinedRoomInfo.style.display = 'none';
-                elements.join.joinedRoomPlayers.style.display = 'none';
-            }
-        } else if (errorContent.includes('Failed to start game')) {
-            // Re-enable start button if game start failed
-            if (isHost) {
-                elements.create.startGameBtn.disabled = false;
-            }
-        }
-    }
-
-    // Create a diagnostic function to help troubleshoot issues
-    function runDiagnostics() {
-        logMessage("=== RUNNING DIAGNOSTICS ===", "info");
-        
-        // Check WebSocket connection
-        const wsConnected = stompClient && stompClient.connected;
-        logMessage(`WebSocket connected: ${wsConnected}`, wsConnected ? "success" : "error");
-        
-        // Log current subscriptions
-        if (stompClient && stompClient.subscriptions) {
-            const subscriptions = Object.keys(stompClient.subscriptions);
-            logMessage(`Active subscriptions: ${subscriptions.length}`, "info");
-            subscriptions.forEach(subId => {
-                const sub = stompClient.subscriptions[subId];
-                logMessage(`- ${subId}: ${sub.destination}`, "info");
-            });
-        } else {
-            logMessage("No active subscriptions found", "warning");
-        }
-        
-        // Log current room state
-        logMessage(`Current room code: ${currentRoomCode || 'None'}`, "info");
-        logMessage(`Is host: ${isHost}`, "info");
-        
-        // Count players in UI
-        const hostPlayers = elements.create.playersList ? elements.create.playersList.children.length : 0;
-        const guestPlayers = elements.join.joinedPlayersList ? elements.join.joinedPlayersList.children.length : 0;
-        logMessage(`Players in host view: ${hostPlayers}`, "info");
-        logMessage(`Players in guest view: ${guestPlayers}`, "info");
-        
-        // Test sending a ping to the room
-        if (currentRoomCode && stompClient && stompClient.connected) {
-            logMessage("Sending diagnostic ping to room...", "info");
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
-                type: 'DIAGNOSTIC_PING',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
-            }));
-            
-            // Also try sending directly to application endpoint
-            try {
-                stompClient.send(CONFIG.SOCKET.ENDPOINTS.JOIN, {
-                    firebaseUid: firebaseUid,
-                    username: playerUsername,
-                    roomCode: currentRoomCode
-                }, JSON.stringify({
-                    type: 'DIAGNOSTIC_PING',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now()
-                }));
-                logMessage("Sent diagnostic ping to application endpoint", "success");
-            } catch (e) {
-                logMessage(`Error sending to application endpoint: ${e.message}`, "error");
-            }
-        }
-        
-        // Check if we need to try repairing the connection
-        if (currentRoomCode && (!wsConnected || (isHost && hostPlayers < 2) || (!isHost && guestPlayers < 2))) {
-            logMessage("Connection appears broken. Attempting repair...", "warning");
-            
-            // Try forcibly resubscribing to room topic
-            try {
-                if (stompClient && stompClient.connected) {
-                    // Try to unsubscribe first if we have a subscription
-                    try {
-                        if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
-                            stompClient.unsubscribe('room-subscription');
-                        }
-                    } catch (e) {
-                        logMessage(`Error unsubscribing: ${e.message}`, "warning");
-                    }
-                    
-                    // Re-subscribe with explicit ID
-                    stompClient.subscribe(
-                        CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
-                        onMessageReceived,
-                        { id: 'room-subscription' }
-                    );
-                    logMessage("Resubscribed to room topic", "success");
-                    
-                    // Send another join message
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
-                        type: 'ROOM_JOINED',
-                        roomCode: currentRoomCode,
-                        senderId: firebaseUid,
-                        senderUsername: playerUsername,
-                        timestamp: Date.now(),
-                        isRepairAttempt: true
-                    }));
-                    logMessage("Sent repair join message", "success");
-                } else {
-                    logMessage("Cannot repair - WebSocket not connected", "error");
-                    connectWebSocket(); // Try reconnecting
-                }
-            } catch (e) {
-                logMessage(`Error during repair: ${e.message}`, "error");
-            }
-        }
-        
-        logMessage("=== DIAGNOSTICS COMPLETE ===", "info");
-        return true;
     }
 
     // Add diagnostics button to the log section
