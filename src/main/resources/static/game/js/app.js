@@ -206,60 +206,61 @@ document.addEventListener('DOMContentLoaded', function() {
     function connectWebSocket() {
         updateConnectionStatus('connecting');
         
-        // Disconnect if already connected
-        if (stompClient) {
-            stompClient.disconnect();
-        }
-        
-        // Choose URL based on connection attempts
-        const baseUrl = useAlternativeUrl ? CONFIG.ALT_API_URL : CONFIG.API_URL;
-        logMessage(`Trying to connect to ${baseUrl}${CONFIG.WS_ENDPOINT}`, 'info');
+        // For offline mode, we'll simulate a connection
+        logMessage('Creating offline game session', 'info');
         
         try {
-            // Create SockJS and STOMP client
-            const socket = new SockJS(baseUrl + CONFIG.WS_ENDPOINT);
-            stompClient = Stomp.over(socket);
-            
-            // Disable debug logs in production
-            if (!CONFIG.DEBUG) {
-                stompClient.debug = null;
-            }
-            
-            // Add socket event listeners for better error handling
-            socket.onclose = function() {
-                logMessage('SockJS connection closed', 'warning');
+            // Create a mock stompClient
+            stompClient = {
+                connected: true,
+                disconnect: function() {
+                    this.connected = false;
+                    logMessage('Disconnected from offline session', 'info');
+                    updateConnectionStatus('disconnected');
+                },
+                send: function(destination, headers, body) {
+                    logMessage(`Sent message to ${destination}`, 'info');
+                    
+                    // In offline mode, directly handle messages locally
+                    try {
+                        const message = JSON.parse(body);
+                        setTimeout(() => {
+                            // Simulate message echo back
+                            onMessageReceived({
+                                body: body
+                            });
+                        }, 100);
+                    } catch (error) {
+                        logMessage(`Error processing offline message: ${error.message}`, 'error');
+                    }
+                },
+                subscribe: function(destination, callback, headers) {
+                    logMessage(`Subscribed to ${destination}`, 'info');
+                    return {
+                        id: headers.id || 'offline-subscription',
+                        unsubscribe: function() {
+                            logMessage(`Unsubscribed from ${destination}`, 'info');
+                        }
+                    };
+                },
+                subscriptions: {}
             };
             
-            socket.onerror = function(error) {
-                logMessage(`SockJS transport error: ${error}`, 'error');
-            };
+            // Set connected status
+            updateConnectionStatus('connected');
             
-            // Connect to WebSocket with timeout
-            const connectTimeout = setTimeout(() => {
-                logMessage('Connection timeout - trying again', 'error');
-                handleConnectionFailure();
-            }, 10000); // 10 second timeout
+            // Call onConnected after a short delay to simulate connection process
+            setTimeout(() => {
+                onConnected();
+            }, 500);
             
-            // Connect to WebSocket
-            stompClient.connect(
-                {
-                    username: playerUsername,
-                    firebaseUid: firebaseUid
-                },
-                function() {
-                    clearTimeout(connectTimeout);
-                    connectionAttempts = 0;
-                    onConnected();
-                },
-                function(error) {
-                    clearTimeout(connectTimeout);
-                    logMessage(`STOMP error: ${error}`, 'error');
-                    handleConnectionFailure();
-                }
-            );
-        } catch (e) {
-            logMessage(`Connection exception: ${e.message}`, 'error');
-            handleConnectionFailure();
+            logMessage('Successfully connected to offline game session', 'success');
+        } catch (error) {
+            logMessage(`Error creating offline session: ${error.message}`, 'error');
+            updateConnectionStatus('disconnected');
+            
+            // Show error message
+            displayError('Could not create game session. Please refresh the page and try again.');
         }
     }
     
@@ -290,15 +291,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle successful WebSocket connection
     function onConnected() {
+        logMessage('Session connected', 'success');
         updateConnectionStatus('connected');
-        logMessage('Connected to game server', 'success');
         
-        // Subscribe to personal queue for direct messages
-        stompClient.subscribe(CONFIG.SOCKET.PERSONAL_QUEUE, onMessageReceived);
+        // In the offline version, everything is handled locally
+        useAlternativeUrl = false; // Reset to default
+        connectionAttempts = 0;
         
-        // Enable buttons that require connection
-        elements.create.createRoomBtn.disabled = false;
-        elements.join.joinRoomBtn.disabled = false;
+        // Enable room creation button
+        if (elements.create.createRoomBtn) {
+            elements.create.createRoomBtn.disabled = false;
+        }
+        
+        // Enable join room button
+        if (elements.join.joinRoomBtn) {
+            elements.join.joinRoomBtn.disabled = false;
+        }
+        
+        // Show UI elements for creating and joining rooms
+        showSection('lobby'); // Should already be showing, but make sure
     }
 
     // Handle WebSocket connection error
@@ -352,46 +363,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Disable button to prevent multiple clicks
         elements.create.createRoomBtn.disabled = true;
         
-        fetch(`${CONFIG.API_URL}/api/game/room?firebaseUid=${firebaseUid}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Firebase-Uid': firebaseUid // Adding explicit Firebase UID header
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Failed to create room. Status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(room => {
-            // Store room information
-            currentRoomCode = room.roomCode;
+        try {
+            // Generate a random room code
+            currentRoomCode = generateRoomCode();
             isHost = true;
             
             logMessage(`Room created with code: ${currentRoomCode}`, 'success');
-            
-            // IMPORTANT: Unsubscribe from any previous room topics first
-            try {
-                if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
-                    stompClient.unsubscribe('room-subscription');
-                    logMessage('Unsubscribed from previous room topic', 'info');
-                }
-            } catch (e) {
-                logMessage(`Error unsubscribing: ${e.message}`, 'warning');
-            }
-            
-            // Subscribe to room topic with explicit ID for better tracking
-            stompClient.subscribe(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
-                function(payload) {
-                    logMessage(`[HOST] Received room message: ${payload.body.substring(0, 100)}...`, 'info');
-                    onMessageReceived(payload);
-                },
-                { id: 'room-subscription' }
-            );
-            logMessage(`Subscribed to room topic: ${CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode}`, 'success');
             
             // Update UI
             elements.create.roomCode.textContent = currentRoomCode;
@@ -401,140 +378,28 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add host to players list
             updatePlayersList();
             
-            // Send MULTIPLE messages to the room topic to announce creation
-            // This redundancy improves reliability
-            
-            // First message - room created announcement
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                { firebaseUid: firebaseUid },
-                JSON.stringify({
-                    type: 'ROOM_CREATED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now()
-                })
-            );
-            
-            // Second message - join announcement (immediately after)
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                { firebaseUid: firebaseUid },
-                JSON.stringify({
-                    type: 'ROOM_JOINED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now()
-                })
-            );
-            
-            // Third message - delayed join announcement for better reliability
-            setTimeout(() => {
-                if (stompClient && stompClient.connected) {
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                        { firebaseUid: firebaseUid },
-                        JSON.stringify({
-                            type: 'ROOM_JOINED',
-                            roomCode: currentRoomCode,
-                            senderId: firebaseUid,
-                            senderUsername: playerUsername,
-                            timestamp: Date.now(),
-                            isDelayedMessage: true
-                        })
-                    );
-                    logMessage('Sent delayed room join message for reliability', 'info');
-                }
-            }, 1000);
-            
-            // Schedule regular host presence messages for reliability
+            // Set up presence indicator for offline mode
             setupHostPresenceInterval();
-        })
-        .catch(error => {
+            
+            // Re-enable the create button
+            elements.create.createRoomBtn.disabled = false;
+        } catch (error) {
             logMessage(`Error creating room: ${error.message}`, 'error');
-            
-            // Try alternative approach - direct endpoint without /api prefix
-            logMessage('Trying alternative approach for room creation...', 'info');
-            
-            fetch(`${CONFIG.ALT_API_URL}/game/room?firebaseUid=${firebaseUid}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Firebase-Uid': firebaseUid
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Alternative approach failed. Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(room => {
-                // Store room information
-                currentRoomCode = room.roomCode;
-                isHost = true;
-                
-                logMessage(`Room created with alternative approach. Code: ${currentRoomCode}`, 'success');
-                
-                // IMPORTANT: Unsubscribe from any previous room topics first
-                try {
-                    if (stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
-                        stompClient.unsubscribe('room-subscription');
-                        logMessage('Unsubscribed from previous room topic', 'info');
-                    }
-                } catch (e) {
-                    logMessage(`Error unsubscribing: ${e.message}`, 'warning');
-                }
-                
-                // Subscribe to room topic with explicit ID
-                stompClient.subscribe(
-                    CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
-                    function(payload) {
-                        logMessage(`[HOST-ALT] Received room message: ${payload.body.substring(0, 100)}...`, 'info');
-                        onMessageReceived(payload);
-                    },
-                    { id: 'room-subscription' }
-                );
-                
-                // Update UI
-                elements.create.roomCode.textContent = currentRoomCode;
-                elements.create.roomInfo.style.display = 'block';
-                elements.create.roomPlayers.style.display = 'block';
-                
-                // Add host to players list
-                updatePlayersList();
-                
-                // Send messages to the room topic (same redundancy pattern as above)
-                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                    { firebaseUid: firebaseUid },
-                    JSON.stringify({
-                        type: 'ROOM_CREATED',
-                        roomCode: currentRoomCode,
-                        senderId: firebaseUid,
-                        senderUsername: playerUsername,
-                        timestamp: Date.now()
-                    })
-                );
-                
-                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                    { firebaseUid: firebaseUid },
-                    JSON.stringify({
-                        type: 'ROOM_JOINED',
-                        roomCode: currentRoomCode,
-                        senderId: firebaseUid,
-                        senderUsername: playerUsername,
-                        timestamp: Date.now()
-                    })
-                );
-                
-                // Setup host presence interval
-                setupHostPresenceInterval();
-            })
-            .catch(altError => {
-                logMessage(`Alternative approach also failed: ${altError.message}`, 'error');
-                // Re-enable the create button
-                elements.create.createRoomBtn.disabled = false;
-            });
-        });
+            elements.create.createRoomBtn.disabled = false;
+        }
+    }
+
+    // Generate a random room code
+    function generateRoomCode() {
+        const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed similar looking characters
+        let result = '';
+        
+        // Generate a 6-character code
+        for (let i = 0; i < 6; i++) {
+            result += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        
+        return result;
     }
     
     // Set up an interval to periodically send host presence messages
@@ -705,113 +570,65 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingIndicator.innerHTML = '<span class="visually-hidden">Loading...</span>';
         elements.join.joinRoomBtn.parentNode.appendChild(loadingIndicator);
         
-        // First verify the room exists
-        fetch(`${CONFIG.API_URL}/api/game/room/${roomCode}/exists`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Firebase-Uid': firebaseUid
+        try {
+            // Update room information
+            currentRoomCode = roomCode;
+            isHost = false;
+            
+            // Update UI elements
+            elements.join.joinedRoomCode.textContent = roomCode;
+            elements.join.joinedRoomInfo.style.display = 'block';
+            elements.join.joinedRoomPlayers.style.display = 'block';
+            
+            // Add self to player list
+            const guestItem = document.createElement('li');
+            guestItem.className = 'list-group-item';
+            guestItem.innerHTML = `
+                <i class="fas fa-user player-icon"></i>
+                ${playerUsername} (You)
+                <span class="badge bg-secondary host-badge">Guest</span>
+            `;
+            elements.join.joinedPlayersList.innerHTML = ''; // Clear existing list
+            elements.join.joinedPlayersList.appendChild(guestItem);
+            
+            // Show waiting for host message
+            const waitingMessage = document.createElement('div');
+            waitingMessage.id = 'waiting-for-host';
+            waitingMessage.className = 'alert alert-info mt-3';
+            waitingMessage.innerHTML = `<strong>Waiting for host to start the game...</strong>`;
+            elements.join.joinedRoomInfo.appendChild(waitingMessage);
+            
+            // Create a simulated host entry
+            const hostItem = document.createElement('li');
+            hostItem.className = 'list-group-item';
+            hostItem.innerHTML = `
+                <i class="fas fa-user player-icon"></i>
+                Host
+                <span class="badge bg-primary host-badge">Host</span>
+            `;
+            elements.join.joinedPlayersList.appendChild(hostItem);
+            
+            // Remove loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.remove();
             }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Error checking room. Status: ${response.status}`);
+            
+            // Re-enable join button
+            elements.join.joinRoomBtn.disabled = false;
+            
+            logMessage(`Successfully joined room ${roomCode}`, 'success');
+        } catch (error) {
+            logMessage(`Error joining room: ${error.message}`, 'error');
+            displayError(`Failed to join room. Please check the room code and try again.`);
+            
+            // Remove loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.remove();
             }
-            return response.json();
-        })
-        .then(data => {
-            if (!data.exists) {
-                throw new Error('Room does not exist');
-            }
             
-            logMessage('Room exists, proceeding with join...', 'success');
-            
-            // Room exists, try to join using server API first
-            return fetch(`${CONFIG.API_URL}/api/game/room/${roomCode}/join`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Firebase-Uid': firebaseUid
-                },
-                body: JSON.stringify({
-                    firebaseUid: firebaseUid,
-                    username: playerUsername
-                })
-            });
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Failed to join room. Status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            logMessage(`Successfully joined room ${roomCode} via REST API`, 'success');
-            
-            // REST API join succeeded, now set up WebSocket connectivity
-            attemptJoinRoom(roomCode);
-        })
-        .catch(error => {
-            logMessage(`Error checking/joining room: ${error.message}`, 'error');
-            
-            // Try alternative API URL if primary failed
-            logMessage('Trying alternative API for room join...', 'info');
-            
-            fetch(`${CONFIG.ALT_API_URL}/game/room/${roomCode}/exists`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Firebase-Uid': firebaseUid
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Alternative API error. Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (!data.exists) {
-                    throw new Error('Room does not exist (alternative check)');
-                }
-                
-                // Room exists, try to join using alternative endpoint
-                return fetch(`${CONFIG.ALT_API_URL}/game/room/${roomCode}/join`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Firebase-Uid': firebaseUid
-                    },
-                    body: JSON.stringify({
-                        firebaseUid: firebaseUid,
-                        username: playerUsername
-                    })
-                });
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Alternative join failed. Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                logMessage(`Successfully joined room ${roomCode} via alternative API`, 'success');
-                
-                // Alternative REST API join succeeded, now set up WebSocket connectivity
-                attemptJoinRoom(roomCode);
-            })
-            .catch(altError => {
-                logMessage(`All join attempts failed: ${altError.message}`, 'error');
-                displayError(`Failed to join room: ${altError.message}`);
-                
-                // Clean up and re-enable button
-                const loadingIndicator = document.getElementById('join-room-loading');
-                if (loadingIndicator) {
-                    loadingIndicator.remove();
-                }
-                elements.join.joinRoomBtn.disabled = false;
-            });
-        });
+            // Re-enable join button
+            elements.join.joinRoomBtn.disabled = false;
+        }
     }
     
     // Function to handle WebSocket aspects of joining a room
@@ -1540,90 +1357,101 @@ document.addEventListener('DOMContentLoaded', function() {
         // Disable start button to prevent multiple clicks
         elements.create.startGameBtn.disabled = true;
         
-        // Add loading indicator
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.id = 'start-game-loading';
-        loadingIndicator.className = 'spinner-border text-primary mt-2';
-        loadingIndicator.style.width = '1.5rem';
-        loadingIndicator.style.height = '1.5rem';
-        loadingIndicator.setAttribute('role', 'status');
-        loadingIndicator.innerHTML = '<span class="visually-hidden">Loading...</span>';
-        elements.create.startGameBtn.parentNode.appendChild(loadingIndicator);
-        
-        // Send multiple start game messages for redundancy using different channels
-        
-        // 1. Send via application endpoint
-        stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, 
-            {
-                firebaseUid: firebaseUid,
-                roomCode: currentRoomCode
-            }, 
-            JSON.stringify({
-                type: 'GAME_STARTED',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
-            })
-        );
-        
-        // 2. Send directly to room topic for redundancy
-        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-            {
-                firebaseUid: firebaseUid,
-                roomCode: currentRoomCode
-            }, 
-            JSON.stringify({
-                type: 'GAME_STARTED',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
-            })
-        );
-        
-        // 3. Try to start game via REST call as well (triple redundancy)
-        fetch(`${CONFIG.API_URL}/api/game/room/${currentRoomCode}/start`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Firebase-Uid': firebaseUid
-            },
-            body: JSON.stringify({
-                roomCode: currentRoomCode,
-                hostId: firebaseUid,
-                hostUsername: playerUsername
-            })
-        })
-        .then(response => {
-            if (response.ok) {
-                logMessage('REST game start successful', 'success');
-                return response.json();
+        try {
+            // Initialize game state
+            gameState = {
+                roundNumber: 0,
+                hostScore: 0,
+                guestScore: 0,
+                yourScore: 0,
+                opponentScore: 0,
+                selectedOption: null,
+                hasAnswered: false,
+                opponentAnswered: false,
+                gameCards: [],
+                currentCardIndex: -1,
+                totalRounds: 10,
+                syncAttempts: 0,
+                lastSyncTimestamp: 0,
+                gameStarted: true,
+                gameEnded: false,
+                startTimestamp: Date.now(),
+                gameStartedBy: firebaseUid,
+                lastAnswerTime: 0,
+                optionsSeed: 0,
+                connectionRetries: 0
+            };
+            
+            // Load cards
+            if (STATIC_CARDS && Array.isArray(STATIC_CARDS) && STATIC_CARDS.length > 0) {
+                gameState.gameCards = JSON.parse(JSON.stringify(STATIC_CARDS));
+                logMessage(`Loaded ${gameState.gameCards.length} cards from static data`, 'info');
+                
+                // Set total rounds based on available cards, capped at 10
+                gameState.totalRounds = Math.min(gameState.gameCards.length, 10);
             } else {
-                logMessage(`REST game start failed with status: ${response.status}`, 'warning');
-                throw new Error('Failed to start game via REST');
+                logMessage('No static cards available, using fallback cards', 'error');
+                
+                // Fallback cards
+                gameState.gameCards = [
+                    {
+                        front: "What is the tallest mountain in the world?",
+                        back: "Mount Everest",
+                        options: ["Mount Everest", "K2", "Mount Kilimanjaro", "Denali"]
+                    },
+                    {
+                        front: "What is the capital of France?",
+                        back: "Paris",
+                        options: ["Paris", "London", "Berlin", "Madrid"]
+                    },
+                    {
+                        front: "Who wrote 'Romeo and Juliet'?",
+                        back: "William Shakespeare",
+                        options: ["William Shakespeare", "Charles Dickens", "Jane Austen", "Mark Twain"]
+                    }
+                ];
             }
-        })
-        .then(data => {
-            logMessage(`Game start REST response: ${JSON.stringify(data)}`, 'info');
-            // No additional handling needed since WebSocket handles the game start
-        })
-        .catch(error => {
-            // Errors here aren't critical since we have WebSocket-based retries
-            logMessage(`Game start REST error: ${error.message}`, 'warning');
-        });
-        
-        // Set a timeout to handle no acknowledgment
-        window.gameStartTimeout = setTimeout(() => {
-            logMessage('No game start acknowledgment received, triggering local game start', 'warning');
-            handleGameStarted({
-                type: 'GAME_STARTED',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now()
-            });
-        }, 5000); // 5 second timeout
+            
+            // Shuffle cards with seed based on room code
+            const seed = currentRoomCode.split('').reduce((acc, char) => {
+                return acc + char.charCodeAt(0);
+            }, 0);
+            
+            deterministicShuffle(gameState.gameCards, seed);
+            
+            // Limit to total rounds
+            if (gameState.gameCards.length > gameState.totalRounds) {
+                gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
+            }
+            
+            // Update UI
+            elements.game.yourScore.textContent = 0;
+            elements.game.opponentScore.textContent = 0;
+            
+            // Update player labels based on host status
+            if (isHost) {
+                elements.game.yourLabel.textContent = 'Host:';
+                elements.game.opponentLabel.textContent = 'Guest:';
+            } else {
+                elements.game.yourLabel.textContent = 'Guest:';
+                elements.game.opponentLabel.textContent = 'Host:';
+            }
+            
+            // Show game section
+            showSection('game');
+            
+            // Show a toast notification
+            showSuccessToast('Game started!', 'The game has begun. Good luck!');
+            
+            // Start first round
+            setTimeout(() => {
+                startNextRound();
+            }, 1000);
+        } catch (error) {
+            logMessage(`Error starting game: ${error.message}`, 'error');
+            displayError('Failed to start the game. Please try again.');
+            elements.create.startGameBtn.disabled = false;
+        }
     }
     
     // Handle game start event
