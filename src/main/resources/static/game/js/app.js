@@ -1230,6 +1230,40 @@ document.addEventListener('DOMContentLoaded', function() {
         if (message.roundNumber > gameState.roundNumber) {
             logMessage(`We're behind (round ${gameState.roundNumber} vs ${message.roundNumber}), catching up`, 'warning');
             
+            // Clear any waiting timeouts
+            if (window.nextRoundTimeout) {
+                clearTimeout(window.nextRoundTimeout);
+                window.nextRoundTimeout = null;
+            }
+            
+            if (window.answerSyncTimeout) {
+                clearTimeout(window.answerSyncTimeout);
+                window.answerSyncTimeout = null;
+            }
+            
+            // Show indicator that we're syncing
+            const syncAlert = document.createElement('div');
+            syncAlert.id = 'sync-alert';
+            syncAlert.className = 'alert alert-info';
+            syncAlert.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <span>Synchronizing with other player...</span>
+                </div>
+            `;
+            
+            if (elements.game.answerFeedback.style.display === 'none') {
+                elements.game.cardQuestion.parentNode.prepend(syncAlert);
+            } else {
+                elements.game.answerFeedback.after(syncAlert);
+            }
+            
+            // Auto-remove after 3 seconds
+            setTimeout(() => {
+                const alert = document.getElementById('sync-alert');
+                if (alert) alert.remove();
+            }, 3000);
+            
             // Update our state to match the message
             gameState.roundNumber = message.roundNumber - 1; // Will be incremented in startNextRound
             gameState.currentCardIndex = message.currentCardIndex - 1; // Will be incremented in startNextRound
@@ -1246,19 +1280,24 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Start the next round to catch up
-            startNextRound();
+            setTimeout(() => {
+                startNextRound();
+            }, 500);
             return;
         }
         
         // If we're ahead, let them catch up (no action needed)
         if (message.roundNumber < gameState.roundNumber) {
             logMessage(`We're ahead (round ${gameState.roundNumber} vs ${message.roundNumber}), waiting for them to catch up`, 'info');
+            
+            // Send our current round info again to help them sync
+            setTimeout(sendRoundSyncMessage, 500);
             return;
         }
         
-        // If we're on the same round, sync scores
+        // If we're on the same round, sync scores and answer states
         if (message.roundNumber === gameState.roundNumber) {
-            logMessage('Syncing scores from same round', 'info');
+            logMessage('Syncing scores and states from same round', 'info');
             
             // Update scores
             gameState.hostScore = message.hostScore || gameState.hostScore;
@@ -1275,6 +1314,69 @@ document.addEventListener('DOMContentLoaded', function() {
             // Update UI
             elements.game.yourScore.textContent = gameState.yourScore;
             elements.game.opponentScore.textContent = gameState.opponentScore;
+            
+            // Update opponent answer state if needed
+            if (message.hasAnswered && !gameState.opponentAnswered) {
+                gameState.opponentAnswered = true;
+                
+                // If we've also answered, we need to move to next round
+                if (gameState.hasAnswered) {
+                    logMessage('Detected that both players have answered via sync message', 'info');
+                    
+                    // Remove any waiting indicators
+                    const waitingIndicator = document.getElementById('waiting-indicator');
+                    if (waitingIndicator) {
+                        waitingIndicator.remove();
+                    }
+                    
+                    // Show moving to next round indicator if it doesn't exist
+                    if (!document.getElementById('next-round-indicator')) {
+                        const nextRoundIndicator = document.createElement('div');
+                        nextRoundIndicator.id = 'next-round-indicator';
+                        nextRoundIndicator.className = 'alert alert-info mt-3';
+                        nextRoundIndicator.innerHTML = `
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                <span>Both players answered! Moving to next question...</span>
+                            </div>
+                        `;
+                        
+                        if (elements.game.answerFeedback.style.display === 'none') {
+                            elements.game.cardQuestion.parentNode.prepend(nextRoundIndicator);
+                        } else {
+                            elements.game.answerFeedback.after(nextRoundIndicator);
+                        }
+                    }
+                    
+                    // Schedule next round
+                    if (window.nextRoundTimeout) {
+                        clearTimeout(window.nextRoundTimeout);
+                    }
+                    
+                    window.nextRoundTimeout = setTimeout(() => {
+                        startNextRound();
+                    }, 2000);
+                } else {
+                    // We haven't answered yet, but opponent has
+                    if (!document.getElementById('waiting-indicator')) {
+                        const waitingIndicator = document.createElement('div');
+                        waitingIndicator.id = 'waiting-indicator';
+                        waitingIndicator.className = 'alert alert-warning mt-3';
+                        waitingIndicator.innerHTML = `
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                <span>Opponent has answered. Waiting for you to answer...</span>
+                            </div>
+                        `;
+                        
+                        if (elements.game.answerFeedback.style.display === 'none') {
+                            elements.game.cardQuestion.parentNode.append(waitingIndicator);
+                        } else {
+                            elements.game.answerFeedback.after(waitingIndicator);
+                        }
+                    }
+                }
+            }
         }
         
         // If we're on the same round but different card somehow, resync
@@ -1636,6 +1738,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Start the next round
     function startNextRound() {
+        // Clear any waiting timeouts
+        if (window.nextRoundTimeout) {
+            clearTimeout(window.nextRoundTimeout);
+            window.nextRoundTimeout = null;
+        }
+        
+        if (window.answerSyncTimeout) {
+            clearTimeout(window.answerSyncTimeout);
+            window.answerSyncTimeout = null;
+        }
+        
+        // Remove any indicator elements
+        const waitingIndicator = document.getElementById('waiting-indicator');
+        if (waitingIndicator) {
+            waitingIndicator.remove();
+        }
+        
+        const nextRoundIndicator = document.getElementById('next-round-indicator');
+        if (nextRoundIndicator) {
+            nextRoundIndicator.remove();
+        }
+        
         // Reset state for the new round
         gameState.hasAnswered = false;
         gameState.opponentAnswered = false;
@@ -1663,50 +1787,31 @@ document.addEventListener('DOMContentLoaded', function() {
             initializeGameCards();
             if (gameState.gameCards.length > 0) {
                 gameState.currentCardIndex = 0;
-                currentCard = gameState.gameCards[0];
+                const firstCard = gameState.gameCards[0];
                 logMessage(`Recovered by reinitializing cards, using first card`, 'info');
+                
+                // Show recovery message
+                const recoveryAlert = document.createElement('div');
+                recoveryAlert.className = 'alert alert-warning mb-3';
+                recoveryAlert.textContent = 'Had to reset the game cards. Starting from the beginning.';
+                elements.game.cardQuestion.parentNode.prepend(recoveryAlert);
+                
+                // Remove recovery message after 3 seconds
+                setTimeout(() => {
+                    recoveryAlert.remove();
+                }, 3000);
+                
+                // Use first card
+                showCardInUI(firstCard);
             } else {
                 endGame();
                 return;
             }
+        } else {
+            // Use the current card
+            showCardInUI(currentCard);
         }
         
-        // Update UI
-        elements.game.roundNumber.textContent = gameState.roundNumber;
-        elements.game.yourScore.textContent = gameState.yourScore;
-        elements.game.opponentScore.textContent = gameState.opponentScore;
-        elements.game.cardQuestion.textContent = currentCard.front;
-        
-        // Create option buttons (using deterministic shuffle with same seed for consistency)
-        elements.game.optionsContainer.innerHTML = '';
-        
-        // Get a seed for this specific card based on room code and round number
-        // This ensures both players see the same order of options
-        const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
-            return acc + char.charCodeAt(0);
-        }, 0) + gameState.roundNumber * 100;
-        
-        // Create a copy of options to shuffle so both players see same order
-        const shuffledOptions = [...currentCard.options];
-        deterministicShuffle(shuffledOptions, optionsSeed);
-        
-        // Create option buttons with deterministically shuffled options
-        shuffledOptions.forEach((option, index) => {
-            const optionCol = document.createElement('div');
-            optionCol.className = 'col-md-6';
-            
-            const optionBtn = document.createElement('button');
-            optionBtn.className = 'btn option-btn';
-            optionBtn.textContent = option;
-            optionBtn.dataset.index = index;
-            optionBtn.dataset.value = option;
-            optionBtn.addEventListener('click', () => submitAnswerLocally(option));
-            
-            optionCol.appendChild(optionBtn);
-            elements.game.optionsContainer.appendChild(optionCol);
-        });
-        
-        // Log new round information
         logMessage(`Round ${gameState.roundNumber} started with card: ${currentCard.front}`, 'info');
         
         // Send round synchronization message with a slight delay to ensure UI is updated first
@@ -1725,6 +1830,44 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Helper function to display a card in the UI
+    function showCardInUI(card) {
+        // Update UI
+        elements.game.roundNumber.textContent = gameState.roundNumber;
+        elements.game.yourScore.textContent = gameState.yourScore;
+        elements.game.opponentScore.textContent = gameState.opponentScore;
+        elements.game.cardQuestion.textContent = card.front;
+        
+        // Create option buttons (using deterministic shuffle with same seed for consistency)
+        elements.game.optionsContainer.innerHTML = '';
+        
+        // Get a seed for this specific card based on room code and round number
+        // This ensures both players see the same order of options
+        const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
+            return acc + char.charCodeAt(0);
+        }, 0) + gameState.roundNumber * 100;
+        
+        // Create a copy of options to shuffle so both players see same order
+        const shuffledOptions = [...card.options];
+        deterministicShuffle(shuffledOptions, optionsSeed);
+        
+        // Create option buttons with deterministically shuffled options
+        shuffledOptions.forEach((option, index) => {
+            const optionCol = document.createElement('div');
+            optionCol.className = 'col-md-6';
+            
+            const optionBtn = document.createElement('button');
+            optionBtn.className = 'btn option-btn';
+            optionBtn.textContent = option;
+            optionBtn.dataset.index = index;
+            optionBtn.dataset.value = option;
+            optionBtn.addEventListener('click', () => submitAnswerLocally(option));
+            
+            optionCol.appendChild(optionBtn);
+            elements.game.optionsContainer.appendChild(optionCol);
+        });
+    }
+
     // Send a round synchronization message to ensure both players are on the same round
     function sendRoundSyncMessage() {
         if (!stompClient || !stompClient.connected) {
@@ -1804,6 +1947,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Mark as answered
         gameState.hasAnswered = true;
         gameState.selectedOption = selectedOption;
+        gameState.lastAnswerTime = Date.now();
         
         // Update UI
         elements.game.yourScore.textContent = gameState.yourScore;
@@ -1841,26 +1985,99 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.game.answerFeedback.textContent = `Incorrect. The correct answer is: ${currentCard.back}`;
         }
         
-        // Notify the other player about our answer
+        // Create a complete message with all required data
+        const answerMessage = {
+            type: 'ANSWER_SUBMITTED',
+            roomCode: currentRoomCode,
+            senderId: firebaseUid,
+            senderUsername: playerUsername,
+            content: selectedOption,
+            hostScore: gameState.hostScore,
+            guestScore: gameState.guestScore,
+            isCorrect: isCorrect,
+            timestamp: Date.now(),
+            roundNumber: gameState.roundNumber,
+            currentCardIndex: gameState.currentCardIndex
+        };
+        
+        // Send answer to room directly for more reliable delivery
         if (stompClient && stompClient.connected) {
-            stompClient.send('/app/game.submitAnswer', 
-                { roomCode: currentRoomCode }, 
-                JSON.stringify({
-                    type: 'ANSWER_SUBMITTED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    content: selectedOption,
-                    hostScore: gameState.hostScore,
-                    guestScore: gameState.guestScore,
-                    isCorrect: isCorrect
-                })
+            // Send directly to room topic for guaranteed delivery
+            stompClient.send(
+                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
+                { roomCode: currentRoomCode },
+                JSON.stringify(answerMessage)
+            );
+            
+            // Also send via application endpoint as a backup
+            stompClient.send(
+                '/app/game.submitAnswer',
+                { roomCode: currentRoomCode },
+                JSON.stringify(answerMessage)
             );
         }
         
-        // If opponent has already answered, move to next round after delay
+        // If opponent has already answered, show indicator that we're moving to next round
         if (gameState.opponentAnswered) {
-            setTimeout(startNextRound, CONFIG.GAME.ROUND_TRANSITION_DELAY);
+            logMessage('Both players have now answered', 'success');
+            
+            // Remove any waiting indicators
+            const waitingIndicator = document.getElementById('waiting-indicator');
+            if (waitingIndicator) {
+                waitingIndicator.remove();
+            }
+            
+            // Add moving to next round indicator
+            const nextRoundIndicator = document.createElement('div');
+            nextRoundIndicator.id = 'next-round-indicator';
+            nextRoundIndicator.className = 'alert alert-info mt-3';
+            nextRoundIndicator.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <span>Both players answered! Moving to next question...</span>
+                </div>
+            `;
+            elements.game.answerFeedback.after(nextRoundIndicator);
+            
+            // Schedule next round with a deliberate pause
+            if (window.nextRoundTimeout) {
+                clearTimeout(window.nextRoundTimeout);
+            }
+            
+            window.nextRoundTimeout = setTimeout(() => {
+                startNextRound();
+                // Send immediate sync message to confirm round change to other player
+                setTimeout(sendRoundSyncMessage, 200);
+            }, CONFIG.GAME.ROUND_TRANSITION_DELAY || 2000);
+        } else {
+            // If opponent hasn't answered yet, show waiting indicator
+            const waitingIndicator = document.createElement('div');
+            waitingIndicator.id = 'waiting-indicator';
+            waitingIndicator.className = 'alert alert-warning mt-3';
+            waitingIndicator.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <span>Waiting for opponent to answer...</span>
+                </div>
+            `;
+            elements.game.answerFeedback.after(waitingIndicator);
+            
+            // Set a backup timeout to move to next round in case opponent message is lost
+            window.answerSyncTimeout = setTimeout(() => {
+                if (!gameState.opponentAnswered) {
+                    logMessage('No opponent answer received after timeout, forcing next round', 'warning');
+                    gameState.opponentAnswered = true; // Mark as answered anyway
+                    
+                    // Remove waiting indicators
+                    const waitingIndicator = document.getElementById('waiting-indicator');
+                    if (waitingIndicator) {
+                        waitingIndicator.remove();
+                    }
+                    
+                    // Start next round
+                    startNextRound();
+                }
+            }, 10000); // 10 second timeout as a safety fallback
         }
         
         logMessage(`You answered: ${selectedOption} (${isCorrect ? 'Correct' : 'Incorrect'})`, 'info');
@@ -1889,7 +2106,39 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // If we've already answered, move to next round after delay
         if (gameState.hasAnswered) {
-            setTimeout(startNextRound, CONFIG.GAME.ROUND_TRANSITION_DELAY);
+            logMessage('Both players have answered. Moving to next round...', 'success');
+            
+            // Add a clear visual indicator that we're advancing
+            const waitingIndicator = document.createElement('div');
+            waitingIndicator.className = 'alert alert-info';
+            waitingIndicator.textContent = 'Both players answered! Moving to next question...';
+            elements.game.answerFeedback.after(waitingIndicator);
+            
+            // Clear any existing timeouts to avoid multiple next rounds
+            if (window.nextRoundTimeout) {
+                clearTimeout(window.nextRoundTimeout);
+            }
+            
+            // Set a deliberate delay then move to next round
+            window.nextRoundTimeout = setTimeout(() => {
+                startNextRound();
+                // Send immediate sync message to confirm round change to other player
+                setTimeout(sendRoundSyncMessage, 200);
+            }, CONFIG.GAME.ROUND_TRANSITION_DELAY || 2000);
+        } else {
+            // Show waiting indicator
+            if (!document.getElementById('waiting-indicator')) {
+                const waitingIndicator = document.createElement('div');
+                waitingIndicator.id = 'waiting-indicator';
+                waitingIndicator.className = 'alert alert-warning mt-3';
+                waitingIndicator.innerHTML = `
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                        <span>Opponent has answered. Waiting for you to answer...</span>
+                    </div>
+                `;
+                elements.game.answerFeedback.after(waitingIndicator);
+            }
         }
     }
     
