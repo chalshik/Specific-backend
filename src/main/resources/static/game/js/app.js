@@ -376,7 +376,31 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.create.roomPlayers.style.display = 'block';
             
             // Add host to players list
-            updatePlayersList();
+            try {
+                // Clear existing list
+                if (elements.create.playersList) {
+                    elements.create.playersList.innerHTML = '';
+                }
+                
+                // Add current player (host) to the list
+                const hostItem = document.createElement('li');
+                hostItem.className = 'list-group-item';
+                hostItem.innerHTML = `
+                    <i class="fas fa-user player-icon"></i>
+                    ${playerUsername}
+                    <span class="badge bg-primary host-badge">Host</span>
+                `;
+                
+                if (elements.create.playersList) {
+                    elements.create.playersList.appendChild(hostItem);
+                    logMessage('Added host to players list', 'info');
+                } else {
+                    logMessage('Could not update players list - element not found', 'error');
+                }
+            } catch (updateError) {
+                logMessage(`Error updating players list: ${updateError.message}`, 'error');
+                // Continue anyway - non-critical error
+            }
             
             // Set up presence indicator for offline mode
             setupHostPresenceInterval();
@@ -966,6 +990,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Validate message has required fields
                 if (!message.type) {
                     logMessage(`Message without proper type: ${payload.body.substring(0, 100)}...`, 'error');
+                    // Try to parse it anyway if it has roomCode, might be a GAME_START_ACK
+                    if (payload.body.includes('GAME_START_ACK') && payload.body.includes('roomCode')) {
+                        logMessage('Attempting to salvage message as GAME_START_ACK', 'info');
+                        try {
+                            if (typeof message === 'string') {
+                                message = JSON.parse(message);
+                            }
+                            message.type = 'GAME_START_ACK';
+                            handleGameStartAck(message);
+                        } catch (e) {
+                            logMessage(`Failed to salvage message: ${e.message}`, 'error');
+                        }
+                    }
                     return;
                 }
                 
@@ -973,6 +1010,28 @@ document.addEventListener('DOMContentLoaded', function() {
             } catch (parseError) {
                 logMessage(`Error parsing message: ${parseError.message}`, 'error');
                 logMessage(`Raw payload: ${payload.body.substring(0, 100)}...`, 'error');
+                
+                // Try to salvage the message if it looks like GAME_START_ACK
+                if (payload.body.includes('GAME_START_ACK') && payload.body.includes('roomCode')) {
+                    logMessage('Attempting to salvage message as GAME_START_ACK', 'info');
+                    try {
+                        const regexMatch = /roomCode":"([^"]+)"/.exec(payload.body);
+                        if (regexMatch && regexMatch[1]) {
+                            const roomCode = regexMatch[1];
+                            if (roomCode === currentRoomCode) {
+                                logMessage('Manually handling as game start acknowledgment', 'info');
+                                handleGameStartAck({
+                                    type: 'GAME_START_ACK',
+                                    roomCode: roomCode,
+                                    senderUsername: 'Guest Player',
+                                    timestamp: Date.now()
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        logMessage(`Failed to salvage message: ${e.message}`, 'error');
+                    }
+                }
                 return;
             }
             
@@ -1159,174 +1218,74 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Handle round synchronization message to ensure both players are in sync
+    // Handle round synchronization
     function handleRoundSync(message) {
-        const syncData = message.syncData;
-        
-        if (!syncData) {
-            logMessage('Received round sync message without sync data', 'warning');
+        if (!message || message.roomCode !== currentRoomCode) {
             return;
         }
         
-        // Debug information about sync state
-        logMessage(`Received round sync for round ${syncData.roundNumber} (our round: ${gameState.roundNumber})`, 'info');
-        logMessage(`Sync data: hostScore=${syncData.hostScore}, guestScore=${syncData.guestScore}, cardFront=${syncData.cardFront}`, 'info');
-        logMessage(`Our state: hostScore=${gameState.hostScore}, guestScore=${gameState.guestScore}, currentCardIndex=${gameState.currentCardIndex}`, 'info');
+        logMessage(`Received round sync: round=${message.roundNumber}, card=${message.currentCardIndex}`, 'info');
         
-        // If the message is from ourselves, ignore
-        if (message.senderId === firebaseUid) {
-            logMessage('Ignoring sync message from ourselves', 'info');
-            return;
-        }
-        
-        // If we're already ahead, ignore but still sync scores
-        if (syncData.roundNumber < gameState.roundNumber) {
-            logMessage('We are ahead of the sender, syncing only scores', 'info');
+        // If we're behind, catch up
+        if (message.roundNumber > gameState.roundNumber) {
+            logMessage(`We're behind (round ${gameState.roundNumber} vs ${message.roundNumber}), catching up`, 'warning');
             
-            // But still update scores to stay in sync
-            gameState.hostScore = syncData.hostScore;
-            gameState.guestScore = syncData.guestScore;
+            // Update our state to match the message
+            gameState.roundNumber = message.roundNumber - 1; // Will be incremented in startNextRound
+            gameState.currentCardIndex = message.currentCardIndex - 1; // Will be incremented in startNextRound
+            gameState.hostScore = message.hostScore || 0;
+            gameState.guestScore = message.guestScore || 0;
             
-            // Update our score display based on whether we're host or guest
+            // Update scores
             if (isHost) {
-                gameState.yourScore = syncData.hostScore;
-                gameState.opponentScore = syncData.guestScore;
+                gameState.yourScore = gameState.hostScore;
+                gameState.opponentScore = gameState.guestScore;
             } else {
-                gameState.yourScore = syncData.guestScore;
-                gameState.opponentScore = syncData.hostScore;
+                gameState.yourScore = gameState.guestScore;
+                gameState.opponentScore = gameState.hostScore;
+            }
+            
+            // Start the next round to catch up
+            startNextRound();
+            return;
+        }
+        
+        // If we're ahead, let them catch up (no action needed)
+        if (message.roundNumber < gameState.roundNumber) {
+            logMessage(`We're ahead (round ${gameState.roundNumber} vs ${message.roundNumber}), waiting for them to catch up`, 'info');
+            return;
+        }
+        
+        // If we're on the same round, sync scores
+        if (message.roundNumber === gameState.roundNumber) {
+            logMessage('Syncing scores from same round', 'info');
+            
+            // Update scores
+            gameState.hostScore = message.hostScore || gameState.hostScore;
+            gameState.guestScore = message.guestScore || gameState.guestScore;
+            
+            if (isHost) {
+                gameState.yourScore = gameState.hostScore;
+                gameState.opponentScore = gameState.guestScore;
+            } else {
+                gameState.yourScore = gameState.guestScore;
+                gameState.opponentScore = gameState.hostScore;
             }
             
             // Update UI
             elements.game.yourScore.textContent = gameState.yourScore;
             elements.game.opponentScore.textContent = gameState.opponentScore;
-            return;
         }
         
-        // If we're on the same round, verify card and scores
-        if (syncData.roundNumber === gameState.roundNumber) {
-            // Always update scores to ensure consistency
-            gameState.hostScore = syncData.hostScore;
-            gameState.guestScore = syncData.guestScore;
+        // If we're on the same round but different card somehow, resync
+        if (message.roundNumber === gameState.roundNumber && 
+            message.currentCardIndex !== gameState.currentCardIndex) {
+            logMessage(`Card index mismatch (${gameState.currentCardIndex} vs ${message.currentCardIndex}), resyncing`, 'warning');
             
-            // Update our score display based on whether we're host or guest
-            if (isHost) {
-                gameState.yourScore = syncData.hostScore;
-                gameState.opponentScore = syncData.guestScore;
-            } else {
-                gameState.yourScore = syncData.guestScore;
-                gameState.opponentScore = syncData.hostScore;
-            }
+            // Update card index
+            gameState.currentCardIndex = message.currentCardIndex - 1; // Will be incremented in startNextRound
             
-            // Update UI
-            elements.game.yourScore.textContent = gameState.yourScore;
-            elements.game.opponentScore.textContent = gameState.opponentScore;
-            
-            // Verify we're on the same card
-            const currentCard = gameState.gameCards[gameState.currentCardIndex];
-            if (!currentCard || currentCard.front !== syncData.cardFront) {
-                logMessage('Card mismatch detected, adjusting...', 'warning');
-                
-                // Find the correct card in our deck
-                const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
-                if (cardIndex !== -1) {
-                    // Save current state before changing
-                    const wasAnswered = gameState.hasAnswered;
-                    const wasOpponentAnswered = gameState.opponentAnswered;
-                    
-                    // Update card index
-                    gameState.currentCardIndex = cardIndex;
-                    
-                    // Reset the UI to show the correct card
-                    elements.game.cardQuestion.textContent = gameState.gameCards[cardIndex].front;
-                    
-                    // If we hadn't answered yet, we need to reset the options
-                    if (!wasAnswered) {
-                        // Re-render options for this card
-                        elements.game.optionsContainer.innerHTML = '';
-                        
-                        // Get deterministic shuffle seed
-                        const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
-                            return acc + char.charCodeAt(0);
-                        }, 0) + gameState.roundNumber * 100;
-                        
-                        // Create a copy of options to shuffle
-                        const currentCard = gameState.gameCards[cardIndex];
-                        const shuffledOptions = [...currentCard.options];
-                        deterministicShuffle(shuffledOptions, optionsSeed);
-                        
-                        // Recreate option buttons
-                        shuffledOptions.forEach((option, index) => {
-                            const optionCol = document.createElement('div');
-                            optionCol.className = 'col-md-6';
-                            
-                            const optionBtn = document.createElement('button');
-                            optionBtn.className = 'btn option-btn';
-                            optionBtn.textContent = option;
-                            optionBtn.dataset.index = index;
-                            optionBtn.dataset.value = option;
-                            optionBtn.addEventListener('click', () => submitAnswerLocally(option));
-                            
-                            optionCol.appendChild(optionBtn);
-                            elements.game.optionsContainer.appendChild(optionCol);
-                        });
-                    }
-                    
-                    // Restore answer state
-                    gameState.hasAnswered = wasAnswered;
-                    gameState.opponentAnswered = wasOpponentAnswered;
-                    
-                    logMessage(`Adjusted to card at index ${cardIndex}`, 'success');
-                } else {
-                    logMessage(`Could not find card with front: ${syncData.cardFront}`, 'error');
-                }
-            }
-            
-            // If both players have answered, prepare for next round
-            if (gameState.hasAnswered && gameState.opponentAnswered) {
-                logMessage('Both players have answered, preparing for next round', 'info');
-                setTimeout(startNextRound, 500); // Short timeout to allow UI to update
-            }
-            
-            return;
-        }
-        
-        // If we're behind, catch up to the correct round
-        if (syncData.roundNumber > gameState.roundNumber) {
-            logMessage(`We are behind (round ${gameState.roundNumber} vs ${syncData.roundNumber}), catching up`, 'warning');
-            
-            // Update to match the sender's state
-            gameState.roundNumber = syncData.roundNumber - 1; // -1 because startNextRound will increment
-            gameState.hostScore = syncData.hostScore;
-            gameState.guestScore = syncData.guestScore;
-            
-            // Update our score display based on whether we're host or guest
-            if (isHost) {
-                gameState.yourScore = syncData.hostScore;
-                gameState.opponentScore = syncData.guestScore;
-            } else {
-                gameState.yourScore = syncData.guestScore;
-                gameState.opponentScore = syncData.hostScore;
-            }
-            
-            // Find the correct card index
-            const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
-            if (cardIndex !== -1) {
-                gameState.currentCardIndex = cardIndex - 1; // -1 because startNextRound will increment
-            } else {
-                // If we can't find the card, use the difference between current and sync round to calculate index
-                const roundDifference = syncData.roundNumber - gameState.roundNumber;
-                gameState.currentCardIndex = Math.min(
-                    gameState.currentCardIndex + roundDifference - 1,
-                    gameState.gameCards.length - 2
-                );
-                logMessage(`Could not find card, estimated index using round difference: ${gameState.currentCardIndex + 1}`, 'warning');
-            }
-            
-            // Reset answer state
-            gameState.hasAnswered = false;
-            gameState.opponentAnswered = false;
-            
-            // Start the next round to align with the sender
+            // Start next round to get to the correct card
             startNextRound();
         }
     }
@@ -1462,7 +1421,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        logMessage(`Game started by ${message.senderUsername}`, 'success');
+        logMessage(`Game started by ${message.senderUsername || 'unknown user'}`, 'success');
         
         // Clear any timers
         if (window.gameStartTimeout) {
@@ -1492,8 +1451,11 @@ document.addEventListener('DOMContentLoaded', function() {
             gameStarted: true,
             gameEnded: false,
             startTimestamp: Date.now(),
-            gameStartedBy: message.senderId,
-            lastSyncTimestamp: 0
+            gameStartedBy: message.senderId || 'unknown',
+            lastSyncTimestamp: 0,
+            syncAttempts: 0,
+            optionsSeed: 0,
+            connectionRetries: 0
         };
         
         // Clone the static cards to prevent modifications to the original array
@@ -1528,7 +1490,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Send acknowledgment if we're a guest
         if (!isHost) {
+            // Send multiple acknowledgments for reliability
             sendGameStartAcknowledgment();
+            setTimeout(sendGameStartAcknowledgment, 500);
+            setTimeout(sendGameStartAcknowledgment, 1500);
         }
         
         // Use deterministic shuffle with consistent seed for both players
@@ -1537,45 +1502,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 0);
         
         logMessage(`Shuffling cards with seed: ${seed}`, 'info');
-        
-        // Shuffle the cards deterministically so both players see the same order
         deterministicShuffle(gameState.gameCards, seed);
         
-        // Limit number of cards to total rounds
-        if (gameState.gameCards.length > gameState.totalRounds) {
-            logMessage(`Limiting to ${gameState.totalRounds} rounds from ${gameState.gameCards.length} cards`, 'info');
-            gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
-        }
-        
-        // Update UI
-        elements.game.yourScore.textContent = 0;
-        elements.game.opponentScore.textContent = 0;
-        
-        // Update player labels based on host status
-        if (isHost) {
-            elements.game.yourLabel.textContent = 'Host:';
-            elements.game.opponentLabel.textContent = 'Guest:';
-        } else {
-            elements.game.yourLabel.textContent = 'Guest:';
-            elements.game.opponentLabel.textContent = 'Host:';
-        }
-        
-        // Show game section
+        // Switch to game section
         showSection('game');
         
-        // Show a toast notification
-        showSuccessToast('Game started!', 'The game has begun. Good luck!');
+        // Initialize UI
+        elements.game.yourScore.textContent = '0';
+        elements.game.opponentScore.textContent = '0';
+        elements.game.roundNumber.textContent = '1';
         
-        // Start first round after a delay to ensure both players are in game view
-        // Use a longer delay for the guest to ensure the host has started first
-        const startDelay = isHost ? 1000 : 1500;
-        
+        // Start the first round after a short delay to ensure both players are ready
         setTimeout(() => {
             startNextRound();
-            
-            // Send additional sync message for redundancy
-            setTimeout(sendRoundSyncMessage, 1000);
-        }, startDelay);
+        }, 1000);
     }
     
     // Send acknowledgment that guest received game start message
@@ -1602,8 +1542,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle game start acknowledgment from guests
     function handleGameStartAck(message) {
+        // Add a safety check for the message
+        if (!message) {
+            logMessage('Received empty game start acknowledgment message', 'error');
+            return;
+        }
+        
         if (message.roomCode === currentRoomCode && isHost) {
-            logMessage(`Received game start acknowledgment from ${message.senderUsername}`, 'success');
+            logMessage(`Received game start acknowledgment from ${message.senderUsername || 'guest'}`, 'success');
             
             // Remove loading indicator if the host is waiting
             const loadingIndicator = document.getElementById('start-game-loading');
@@ -1619,7 +1565,25 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Show success toast to host
-            showSuccessToast(`${message.senderUsername} has joined the game`, 'Game is in progress for both players');
+            showSuccessToast(`${message.senderUsername || 'Guest'} has joined the game`, 'Game is in progress for both players');
+            
+            // Enable start game button on the host side if it's disabled
+            if (elements.create.startGameBtn.disabled) {
+                elements.create.startGameBtn.disabled = false;
+            }
+            
+            // Force start first round if it hasn't started yet
+            if (gameState.gameStarted && gameState.currentCardIndex === -1) {
+                logMessage('Starting next round based on game start acknowledgment', 'info');
+                setTimeout(() => {
+                    startNextRound();
+                }, 500);
+            }
+            
+            // Send round sync message for redundancy
+            if (gameState.currentCardIndex >= 0) {
+                setTimeout(sendRoundSyncMessage, 800);
+            }
         }
     }
     
@@ -1692,6 +1656,21 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const currentCard = gameState.gameCards[gameState.currentCardIndex];
         
+        if (!currentCard) {
+            logMessage(`Error: No card found for index ${gameState.currentCardIndex}`, 'error');
+            
+            // Try to reinitialize game cards
+            initializeGameCards();
+            if (gameState.gameCards.length > 0) {
+                gameState.currentCardIndex = 0;
+                currentCard = gameState.gameCards[0];
+                logMessage(`Recovered by reinitializing cards, using first card`, 'info');
+            } else {
+                endGame();
+                return;
+            }
+        }
+        
         // Update UI
         elements.game.roundNumber.textContent = gameState.roundNumber;
         elements.game.yourScore.textContent = gameState.yourScore;
@@ -1735,9 +1714,15 @@ document.addEventListener('DOMContentLoaded', function() {
             // Send multiple sync messages for redundancy
             sendRoundSyncMessage();
             
-            // Send another sync message after a short delay
+            // Send more sync messages with delays for reliability
             setTimeout(sendRoundSyncMessage, 500);
+            setTimeout(sendRoundSyncMessage, 1500);
         }, 100);
+        
+        // Show the game section if not already visible
+        if (!elements.sections.game.classList.contains('active')) {
+            showSection('game');
+        }
     }
     
     // Send a round synchronization message to ensure both players are on the same round
@@ -1755,78 +1740,43 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            // Create comprehensive sync data
-            const roundSyncData = {
-                roomCode: currentRoomCode,
-                roundNumber: gameState.roundNumber,
-                hostScore: gameState.hostScore,
-                guestScore: gameState.guestScore,
-                currentCardIndex: gameState.currentCardIndex,
-                cardFront: currentCard.front,
-                cardBack: currentCard.back,
-                hasAnswered: gameState.hasAnswered,
-                opponentAnswered: gameState.opponentAnswered,
-                totalCards: gameState.gameCards.length,
-                timestamp: Date.now(),
-                seed: currentRoomCode.split('').reduce((acc, char) => 
-                    acc + char.charCodeAt(0), 0),
-                totalRounds: gameState.totalRounds,
-                options: currentCard.options
-            };
-            
-            // Send full sync message
-            const fullMessage = {
-                type: 'ROUND_SYNC',
-                roomCode: currentRoomCode,
-                senderId: firebaseUid,
-                senderUsername: playerUsername,
-                timestamp: Date.now(),
-                syncData: roundSyncData,
-                isHost: isHost
-            };
-            
-            // Ensure we're not flooding the connection
+            // Throttle sync messages to prevent flooding
             const now = Date.now();
-            if (gameState.lastSyncTimestamp && (now - gameState.lastSyncTimestamp < 200)) {
-                logMessage('Throttling sync message - too frequent', 'warning');
+            if (now - gameState.lastSyncTimestamp < 200) {
+                logMessage('Throttling round sync message', 'info');
                 return;
             }
             
-            // Update last sync timestamp
             gameState.lastSyncTimestamp = now;
+            gameState.syncAttempts++;
             
-            // Send to room topic
+            // Send a simple direct message format for better compatibility
+            const message = {
+                type: 'ROUND_SYNC',
+                roomCode: currentRoomCode,
+                roundNumber: gameState.roundNumber,
+                currentCardIndex: gameState.currentCardIndex,
+                hostScore: gameState.hostScore,
+                guestScore: gameState.guestScore,
+                timestamp: now,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                hasAnswered: gameState.hasAnswered,
+                opponentAnswered: gameState.opponentAnswered,
+                syncAttempt: gameState.syncAttempts
+            };
+            
+            // Send message to room
             stompClient.send(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
                 { 
                     firebaseUid: firebaseUid,
-                    roomCode: currentRoomCode 
-                }, 
-                JSON.stringify(fullMessage)
+                    roomCode: currentRoomCode
+                },
+                JSON.stringify(message)
             );
             
-            logMessage(`Sent round sync message for round ${gameState.roundNumber}`, 'info');
-            
-            // If players are still not synced after multiple attempts, try alternative approach
-            if (gameState.syncAttempts > 3) {
-                // Send a direct message to self and to the other player
-                setTimeout(() => {
-                    if (stompClient && stompClient.connected) {
-                        stompClient.send(
-                            '/app/game.nextRound', 
-                            { 
-                                firebaseUid: firebaseUid,
-                                roomCode: currentRoomCode 
-                            }, 
-                            JSON.stringify(fullMessage)
-                        );
-                        logMessage('Sent alternative sync message via app endpoint', 'info');
-                    }
-                }, 300);
-            }
-            
-            // Increment sync attempts counter
-            gameState.syncAttempts = (gameState.syncAttempts || 0) + 1;
+            logMessage(`Sent round sync for round ${gameState.roundNumber}, attempt ${gameState.syncAttempts}`, 'info');
         } catch (error) {
             logMessage(`Error sending round sync: ${error.message}`, 'error');
         }
