@@ -210,7 +210,52 @@ document.addEventListener('DOMContentLoaded', function() {
         logMessage('Creating offline game session', 'info');
         
         try {
-            // Create a mock stompClient
+            // Create a mock stompClient with sanitized send method
+            const originalSend = function(destination, headers, body) {
+                logMessage(`Preparing to send message to ${destination}`, 'info');
+                
+                try {
+                    // Parse the message body to sanitize it
+                    let message = JSON.parse(body);
+                    
+                    // Sanitize nested message structures
+                    if (typeof message.type === 'object') {
+                        logMessage('Intercepted nested message structure before sending', 'warning');
+                        const nestedData = { ...message.type };
+                        const mainType = nestedData.type;
+                        
+                        // Create a new flattened message
+                        const flatMessage = {
+                            ...message,
+                            ...nestedData,
+                            type: mainType  // Make sure type is a string, not an object
+                        };
+                        
+                        // Use the flattened message
+                        message = flatMessage;
+                        logMessage(`Flattened message type: ${message.type}`, 'info');
+                    }
+                    
+                    // Log the sanitized message
+                    logMessage(`Sending sanitized message: ${JSON.stringify(message).substring(0, 100)}...`, 'info');
+                    
+                    // Convert back to string for sending
+                    body = JSON.stringify(message);
+                    
+                    // In offline mode, directly handle messages locally
+                    setTimeout(() => {
+                        // Simulate message echo back
+                        onMessageReceived({
+                            body: body
+                        });
+                    }, 100);
+                } catch (error) {
+                    logMessage(`Error sanitizing message: ${error.message}`, 'error');
+                    // Just use the original body if there was an error
+                }
+            };
+            
+            // Create the mock stompClient with our enhanced send method
             stompClient = {
                 connected: true,
                 disconnect: function() {
@@ -218,22 +263,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     logMessage('Disconnected from offline session', 'info');
                     updateConnectionStatus('disconnected');
                 },
-                send: function(destination, headers, body) {
-                    logMessage(`Sent message to ${destination}`, 'info');
-                    
-                    // In offline mode, directly handle messages locally
-                    try {
-                        const message = JSON.parse(body);
-                        setTimeout(() => {
-                            // Simulate message echo back
-                            onMessageReceived({
-                                body: body
-                            });
-                        }, 100);
-                    } catch (error) {
-                        logMessage(`Error processing offline message: ${error.message}`, 'error');
-                    }
-                },
+                send: originalSend,
                 subscribe: function(destination, callback, headers) {
                     logMessage(`Subscribed to ${destination}`, 'info');
                     return {
@@ -1027,148 +1057,168 @@ document.addEventListener('DOMContentLoaded', function() {
     // Handle incoming WebSocket messages
     function onMessageReceived(payload) {
         try {
+            // First, check if the payload is valid
+            if (!payload || !payload.body) {
+                logMessage('Received empty payload', 'error');
+                return;
+            }
+            
+            // Log raw message for debugging
+            const rawMessage = payload.body;
+            logMessage(`Raw message received: ${rawMessage.substring(0, 100)}...`, 'debug');
+            
+            // Try to parse and sanitize the message
             let message;
             try {
-                message = JSON.parse(payload.body);
+                message = JSON.parse(rawMessage);
                 
-                // Fix nested message structures for ALL message types
-                if (typeof message.type === 'object') {
-                    logMessage(`Fixing nested message: ${JSON.stringify(message.type).substring(0, 100)}...`, 'warning');
-                    // The actual message is nested inside the type property
-                    message = message.type;
-                    logMessage(`Fixed message type: ${message.type}`, 'info');
+                // GLOBAL FIX: Recursively unnest any type of nested structure
+                function unnestMessage(msg) {
+                    // Base case: not an object or null
+                    if (!msg || typeof msg !== 'object') return msg;
+                    
+                    // Handle array case
+                    if (Array.isArray(msg)) {
+                        return msg.map(unnestMessage);
+                    }
+                    
+                    // Check for nested type pattern
+                    if (typeof msg.type === 'object' && msg.type !== null) {
+                        logMessage('Found nested type structure: ' + JSON.stringify(msg.type).substring(0, 50) + '...', 'warning');
+                        
+                        // Create a new unnested object with properties from both levels
+                        const result = { ...msg };
+                        
+                        // Remove the object type and merge its properties
+                        delete result.type;
+                        
+                        // Merge nested properties, giving preference to the inner object
+                        Object.entries(msg.type).forEach(([key, value]) => {
+                            result[key] = value;
+                        });
+                        
+                        return unnestMessage(result); // Process again in case of multi-level nesting
+                    }
+                    
+                    // Process all nested objects recursively
+                    const result = {};
+                    Object.entries(msg).forEach(([key, value]) => {
+                        result[key] = unnestMessage(value);
+                    });
+                    
+                    return result;
                 }
+                
+                // Apply the unnesting function
+                message = unnestMessage(message);
                 
                 // Validate message has required fields
-                if (!message.type) {
-                    logMessage(`Message without proper type: ${payload.body.substring(0, 100)}...`, 'error');
+                if (!message.type || typeof message.type !== 'string') {
+                    logMessage(`Message without proper type after unnesting: ${JSON.stringify(message).substring(0, 100)}...`, 'error');
                     
-                    // Try to extract type from string if possible
-                    const typeMatch = /"type":"([^"]+)"/.exec(payload.body);
+                    // Try to extract type from the raw string if not found after parsing
+                    const typeMatch = /"type"\s*:\s*"([^"]+)"/.exec(rawMessage);
                     if (typeMatch && typeMatch[1]) {
                         const extractedType = typeMatch[1];
-                        logMessage(`Extracted message type: ${extractedType}`, 'info');
+                        logMessage(`Extracted message type from raw payload: ${extractedType}`, 'info');
                         
-                        // Handle specific message types we can recover
-                        if (extractedType === 'GAME_START_ACK' || 
-                            extractedType === 'ANSWER_SUBMITTED' || 
-                            extractedType === 'ROUND_SYNC') {
-                            
-                            logMessage(`Attempting to salvage message as ${extractedType}`, 'info');
-                            try {
-                                // Extract room code if possible
-                                const roomMatch = /"roomCode":"([^"]+)"/.exec(payload.body);
-                                const roomCode = roomMatch ? roomMatch[1] : currentRoomCode;
-                                
-                                // Create a basic valid message
-                                const salvageMessage = {
-                                    type: extractedType,
-                                    roomCode: roomCode,
-                                    timestamp: Date.now()
-                                };
-                                
-                                // Add additional fields based on message type
-                                if (extractedType === 'ANSWER_SUBMITTED') {
-                                    // Try to extract scores
-                                    const hostScoreMatch = /"hostScore":(\d+)/.exec(payload.body);
-                                    const guestScoreMatch = /"guestScore":(\d+)/.exec(payload.body);
-                                    
-                                    salvageMessage.hostScore = hostScoreMatch ? parseInt(hostScoreMatch[1]) : gameState.hostScore;
-                                    salvageMessage.guestScore = guestScoreMatch ? parseInt(guestScoreMatch[1]) : gameState.guestScore;
-                                    salvageMessage.senderUsername = 'Opponent';
-                                    salvageMessage.hasAnswered = true;
-                                    
-                                    // Route to appropriate handler
-                                    handleAnswerSubmitted(salvageMessage);
-                                    return;
-                                } else if (extractedType === 'GAME_START_ACK') {
-                                    // Handle game start acknowledgment
-                                    handleGameStartAck(salvageMessage);
-                                    return;
-                                } else if (extractedType === 'ROUND_SYNC') {
-                                    // Try to extract round number
-                                    const roundMatch = /"roundNumber":(\d+)/.exec(payload.body);
-                                    const cardIndexMatch = /"currentCardIndex":(\d+)/.exec(payload.body);
-                                    
-                                    salvageMessage.roundNumber = roundMatch ? parseInt(roundMatch[1]) : gameState.roundNumber;
-                                    salvageMessage.currentCardIndex = cardIndexMatch ? parseInt(cardIndexMatch[1]) : gameState.currentCardIndex;
-                                    
-                                    // Handle round sync
-                                    handleRoundSync(salvageMessage);
-                                    return;
-                                }
-                            } catch (e) {
-                                logMessage(`Failed to salvage message: ${e.message}`, 'error');
-                            }
+                        // Set the type in the message
+                        message.type = extractedType;
+                    } else {
+                        // If we can't find a type, try to infer from content
+                        if (rawMessage.includes('ANSWER_SUBMITTED')) {
+                            message.type = 'ANSWER_SUBMITTED';
+                            logMessage('Inferred type as ANSWER_SUBMITTED from content', 'info');
+                        } else if (rawMessage.includes('GAME_START_ACK')) {
+                            message.type = 'GAME_START_ACK';
+                            logMessage('Inferred type as GAME_START_ACK from content', 'info');
+                        } else if (rawMessage.includes('ROUND_SYNC')) {
+                            message.type = 'ROUND_SYNC';
+                            logMessage('Inferred type as ROUND_SYNC from content', 'info');
+                        } else {
+                            logMessage('Could not determine message type', 'error');
+                            return;
                         }
                     }
-                    return;
                 }
                 
-                logMessage(`Received message: ${message.type}`, 'info');
+                // Make sure we have a room code
+                if (!message.roomCode && currentRoomCode) {
+                    message.roomCode = currentRoomCode;
+                    logMessage('Added missing roomCode to message', 'warning');
+                }
+                
+                logMessage(`Processed message type: ${message.type}`, 'info');
             } catch (parseError) {
                 logMessage(`Error parsing message: ${parseError.message}`, 'error');
-                logMessage(`Raw payload: ${payload.body.substring(0, 100)}...`, 'error');
+                logMessage(`Problematic payload: ${rawMessage.substring(0, 100)}...`, 'error');
                 
-                // Try to salvage structurally invalid messages
+                // Try extreme recovery measures for common message types
                 try {
                     // Check for common message types in the raw payload
-                    if (payload.body.includes('ANSWER_SUBMITTED')) {
-                        logMessage('Attempting to salvage as ANSWER_SUBMITTED message', 'info');
+                    if (rawMessage.includes('ANSWER_SUBMITTED')) {
+                        logMessage('Recovery: Creating minimal ANSWER_SUBMITTED message', 'warning');
                         
-                        // Create a minimal valid message with opponent answer
-                        const salvageMessage = {
+                        message = {
                             type: 'ANSWER_SUBMITTED',
                             roomCode: currentRoomCode,
                             senderUsername: 'Opponent',
                             hostScore: gameState.hostScore,
                             guestScore: gameState.guestScore,
-                            timestamp: Date.now()
+                            timestamp: Date.now(),
+                            hasAnswered: true
                         };
                         
                         // Try to extract scores if possible
-                        const hostScoreMatch = /"hostScore":(\d+)/.exec(payload.body);
-                        const guestScoreMatch = /"guestScore":(\d+)/.exec(payload.body);
+                        const hostScoreMatch = /hostScore"?\s*:\s*(\d+)/.exec(rawMessage);
+                        const guestScoreMatch = /guestScore"?\s*:\s*(\d+)/.exec(rawMessage);
                         
                         if (hostScoreMatch) {
-                            salvageMessage.hostScore = parseInt(hostScoreMatch[1]);
+                            message.hostScore = parseInt(hostScoreMatch[1]);
                         }
                         
                         if (guestScoreMatch) {
-                            salvageMessage.guestScore = parseInt(guestScoreMatch[1]);
+                            message.guestScore = parseInt(guestScoreMatch[1]);
                         }
+                    } else if (rawMessage.includes('GAME_START_ACK')) {
+                        logMessage('Recovery: Creating minimal GAME_START_ACK message', 'warning');
                         
-                        // Handle the reconstructed message
-                        handleAnswerSubmitted(salvageMessage);
-                        return;
-                    } else if (payload.body.includes('GAME_START_ACK')) {
-                        logMessage('Attempting to salvage as GAME_START_ACK message', 'info');
-                        
-                        // Extract room code if possible
-                        const roomMatch = /"roomCode":"([^"]+)"/.exec(payload.body);
-                        const roomCode = roomMatch ? roomMatch[1] : currentRoomCode;
-                        
-                        // Create basic valid message
-                        const salvageMessage = {
+                        message = {
                             type: 'GAME_START_ACK',
-                            roomCode: roomCode,
-                            senderUsername: 'Guest Player',
+                            roomCode: currentRoomCode,
+                            senderUsername: 'Guest',
+                            timestamp: Date.now()
+                        };
+                    } else if (rawMessage.includes('ROUND_SYNC')) {
+                        logMessage('Recovery: Creating minimal ROUND_SYNC message', 'warning');
+                        
+                        message = {
+                            type: 'ROUND_SYNC',
+                            roomCode: currentRoomCode,
+                            roundNumber: gameState.roundNumber,
+                            currentCardIndex: gameState.currentCardIndex,
+                            hostScore: gameState.hostScore,
+                            guestScore: gameState.guestScore,
                             timestamp: Date.now()
                         };
                         
-                        // Handle the message
-                        if (roomCode === currentRoomCode) {
-                            handleGameStartAck(salvageMessage);
+                        // Try to extract round info
+                        const roundMatch = /roundNumber"?\s*:\s*(\d+)/.exec(rawMessage);
+                        if (roundMatch) {
+                            message.roundNumber = parseInt(roundMatch[1]);
                         }
+                    } else {
+                        // Cannot recover, abort
+                        logMessage('Unable to recover message. Skipping processing.', 'error');
                         return;
                     }
-                } catch (salvageError) {
-                    logMessage(`Failed to salvage message: ${salvageError.message}`, 'error');
+                } catch (recoveryError) {
+                    logMessage(`Failed to recover message: ${recoveryError.message}`, 'error');
+                    return;
                 }
-                return;
             }
             
-            // Handle different message types
+            // HANDLE DIFFERENT MESSAGE TYPES
             switch (message.type) {
                 case 'ROUND_SYNC':
                     // Handle round synchronization as a high priority message
@@ -1758,20 +1808,30 @@ document.addEventListener('DOMContentLoaded', function() {
         if (stompClient && stompClient.connected && currentRoomCode) {
             logMessage('Sending game start acknowledgment to host', 'info');
             
-            // Send directly to room topic
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                {
-                    firebaseUid: firebaseUid,
-                    roomCode: currentRoomCode
-                }, 
-                JSON.stringify({
-                    type: 'GAME_START_ACK',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now()
-                })
-            );
+            // CRITICAL FIX: Create simple string message to avoid nesting
+            const simplifiedMessage = JSON.stringify({
+                type: "GAME_START_ACK",
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now()
+            });
+            
+            try {
+                // Send directly to room topic with minimal metadata
+                stompClient.send(
+                    CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                    {
+                        firebaseUid: firebaseUid,
+                        roomCode: currentRoomCode
+                    }, 
+                    simplifiedMessage
+                );
+                
+                logMessage('Game start acknowledgment sent successfully', 'success');
+            } catch (sendError) {
+                logMessage(`Error sending game start acknowledgment: ${sendError.message}`, 'error');
+            }
         }
     }
 
@@ -2122,9 +2182,10 @@ document.addEventListener('DOMContentLoaded', function() {
             gameState.lastSyncTimestamp = now;
             gameState.syncAttempts++;
             
-            // Send a simple direct message format for better compatibility
-            const message = {
-                type: 'ROUND_SYNC',
+            // CRITICAL FIX: Create a simple string message to avoid any possibility of nesting
+            // First create the object
+            const syncData = {
+                type: "ROUND_SYNC",
                 roomCode: currentRoomCode,
                 roundNumber: gameState.roundNumber,
                 currentCardIndex: gameState.currentCardIndex,
@@ -2138,19 +2199,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 syncAttempt: gameState.syncAttempts
             };
             
-            // Send message to room
-            stompClient.send(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
-                { 
-                    firebaseUid: firebaseUid,
-                    roomCode: currentRoomCode
-                },
-                JSON.stringify(message)
-            );
+            // Then stringify it directly
+            const simplifiedMessage = JSON.stringify(syncData);
             
-            logMessage(`Sent round sync for round ${gameState.roundNumber}, attempt ${gameState.syncAttempts}`, 'info');
+            // Log for debugging
+            logMessage(`Sending round sync (${gameState.syncAttempts}): ${simplifiedMessage.substring(0, 50)}...`, 'debug');
+            
+            try {
+                // Send message to room using the pre-stringified message
+                stompClient.send(
+                    CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
+                    { 
+                        firebaseUid: firebaseUid,
+                        roomCode: currentRoomCode
+                    },
+                    simplifiedMessage
+                );
+                
+                logMessage(`Sent round sync for round ${gameState.roundNumber}, attempt ${gameState.syncAttempts}`, 'info');
+            } catch (sendError) {
+                logMessage(`Error sending sync: ${sendError.message}`, 'error');
+            }
         } catch (error) {
-            logMessage(`Error sending round sync: ${error.message}`, 'error');
+            logMessage(`Error preparing round sync: ${error.message}`, 'error');
         }
     }
 
@@ -2214,9 +2285,9 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.game.answerFeedback.textContent = `Incorrect. The correct answer is: ${currentCard.back}`;
         }
         
-        // Create a complete message with all required data
-        const answerMessage = {
-            type: 'ANSWER_SUBMITTED',
+        // CRITICAL FIX: Create a simple string message to avoid nested structures
+        const simplifiedMessage = JSON.stringify({
+            type: "ANSWER_SUBMITTED",
             roomCode: currentRoomCode,
             senderId: firebaseUid,
             senderUsername: playerUsername,
@@ -2226,24 +2297,28 @@ document.addEventListener('DOMContentLoaded', function() {
             isCorrect: isCorrect,
             timestamp: Date.now(),
             roundNumber: gameState.roundNumber,
-            currentCardIndex: gameState.currentCardIndex
-        };
+            currentCardIndex: gameState.currentCardIndex,
+            hasAnswered: true
+        });
         
         // Send answer to room directly for more reliable delivery
         if (stompClient && stompClient.connected) {
-            // Send directly to room topic for guaranteed delivery
-            stompClient.send(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
-                { roomCode: currentRoomCode },
-                JSON.stringify(answerMessage)
-            );
-            
-            // Also send via application endpoint as a backup
-            stompClient.send(
-                '/app/game.submitAnswer',
-                { roomCode: currentRoomCode },
-                JSON.stringify(answerMessage)
-            );
+            try {
+                // Use manual string message to avoid any chance of nested structure
+                logMessage("Sending ANSWER_SUBMITTED with simplified format", "info");
+                
+                // Send directly to room topic with minimal headers
+                stompClient.send(
+                    CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode,
+                    { roomCode: currentRoomCode },
+                    simplifiedMessage
+                );
+                
+                // For debug only, log what we're sending
+                logMessage(`Answer message sent: ${simplifiedMessage.substring(0, 100)}...`, 'debug');
+            } catch (sendError) {
+                logMessage(`Error sending answer: ${sendError.message}`, 'error');
+            }
         }
         
         // If opponent has already answered, show indicator that we're moving to next round
@@ -2330,6 +2405,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Update UI
         elements.game.opponentScore.textContent = gameState.opponentScore;
+        
         
         logMessage(`${message.senderUsername} submitted answer: ${message.content}`, 'info');
         
