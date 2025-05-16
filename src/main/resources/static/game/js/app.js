@@ -1056,19 +1056,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     { firebaseUid: firebaseUid },
                     JSON.stringify({
                         type: 'ROOM_JOINED',
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
+                        roomCode: currentRoomCode,
+                        senderId: firebaseUid,
                         senderUsername: playerUsername,
                         timestamp: Date.now(),
                         isHostReply: true, 
+                        isHost: true,
                         message: `Host ${playerUsername} acknowledges guest ${message.senderUsername}`
                     })
                 );
             }
-        } else if (!isSelfMessage) {
-            // As guest, handle host messages
-            const isHostMessage = message.isHostReply === true;
-            const isHostSender = message.type === 'ROOM_CREATED' || message.isHost === true;
+        } else {
+            // As guest, handle host messages or add our host to the player list if not already there
+            const isHostMessage = message.isHostReply === true || message.isHost === true;
             
             // Create host item for display
             const hostItem = document.createElement('li');
@@ -1079,12 +1079,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span class="badge bg-primary host-badge">Host</span>
             `;
             
-            // Add to joined players list if not already there
+            // Add to joined players list if not already there and it's a host message
             const existingHost = Array.from(elements.join.joinedPlayersList.children)
                 .some(item => item.textContent.includes(message.senderUsername) && 
                               item.textContent.includes('Host'));
                 
-            if (!existingHost) {
+            if (!existingHost && isHostMessage) {
                 elements.join.joinedPlayersList.appendChild(hostItem);
                 logMessage(`Host ${message.senderUsername} found in room`, 'success');
                 
@@ -1106,18 +1106,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         notification.remove();
                     }
                 }, 3000);
-                
-                // Send back another confirmation to ensure host sees us
-                if (!isHostMessage) {
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
-                        type: 'GUEST_JOINED',
-                        roomCode: currentRoomCode,
-                        senderId: firebaseUid,
-                        senderUsername: playerUsername,
-                        timestamp: Date.now(),
-                        isGuestReply: true
-                    }));
-                }
+            }
+            
+            // Send back a confirmation to ensure host sees us (but not if we're responding to a host reply)
+            if (!isSelfMessage && !message.isHostReply) {
+                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
+                    type: 'GUEST_JOINED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
+                    timestamp: Date.now(),
+                    isGuestReply: true
+                }));
             }
             
             if (isHostMessage) {
@@ -1140,6 +1140,10 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Handle different message types
             switch (message.type) {
+                case 'ROUND_SYNC':
+                    // Handle round synchronization as a high priority message
+                    handleRoundSync(message);
+                    break;
                 case 'ROOM_CREATED':
                     // Add special handling for room creation
                     if (message.roomCode === currentRoomCode && !isHost) {
@@ -1183,27 +1187,19 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <span class="badge bg-primary host-badge">Host</span>
                             `;
                             elements.join.joinedPlayersList.appendChild(hostItem);
-                            logMessage(`Added host ${message.senderUsername} to player list from presence message`, 'success');
+                            
+                            elements.join.joinedRoomInfo.style.display = 'block';
+                            elements.join.joinedRoomPlayers.style.display = 'block';
+                            
+                            // Re-enable join button if it's still disabled
+                            elements.join.joinRoomBtn.disabled = false;
                         }
-                        
-                        // Make sure UI is properly showing the room
-                        elements.join.joinedRoomInfo.style.display = 'block';
-                        elements.join.joinedRoomPlayers.style.display = 'block';
-                        
-                        // Re-enable join button if it's still disabled
-                        elements.join.joinRoomBtn.disabled = false;
                     }
                     break;
                 case 'GAME_START_ACK':
                     // Handle game start acknowledgment from guest players
                     if (isHost && message.roomCode === currentRoomCode) {
                         handleGameStartAck(message);
-                    }
-                    break;
-                case 'ROUND_SYNC':
-                    // Handle round synchronization to ensure both players are on the same round
-                    if (message.roomCode === currentRoomCode && message.senderId !== firebaseUid) {
-                        handleRoundSync(message);
                     }
                     break;
                 case 'GAME_STARTED':
@@ -1227,6 +1223,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                 case 'ANSWER_SUBMITTED':
                     handleAnswerSubmitted(message);
+                    
+                    // Send a sync message after receiving an answer to ensure both players are up to date
+                    if (gameState.hasAnswered) {
+                        setTimeout(sendRoundSyncMessage, 300);
+                    }
                     break;
                 case 'GAME_OVER':
                     handleGameOver(message);
@@ -1243,31 +1244,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (isHost && message.senderId !== firebaseUid) {
                         stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
                             type: 'DIAGNOSTIC_RESPONSE',
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
+                            roomCode: currentRoomCode,
+                            senderId: firebaseUid,
                             senderUsername: playerUsername,
                             timestamp: Date.now(),
                             responseToId: message.senderId
                         }));
                     }
                     break;
-                case 'DIAGNOSTIC_RESPONSE':
-                    if (message.responseToId === firebaseUid) {
-                        logMessage(`Diagnostic response from host: ${message.senderUsername}`, 'success');
-                    }
-                    break;
                 default:
-                    logMessage(`Unknown message type: ${message.type}`, 'warning');
-                    // Try to handle anyway if it contains room info
-                    if (message.roomCode === currentRoomCode && message.senderUsername) {
-                        handleRoomJoined({
-                            ...message,
-                            type: 'ROOM_JOINED' // Treat as join message
-                        });
-                    }
+                    logMessage(`Unhandled message type: ${message.type}`, 'warning');
+                    break;
             }
             
-            // Always make sure the loading indicator is removed after any message
+            // Remove loading indicator if it exists after processing any message
             const loadingIndicator = document.getElementById('join-room-loading');
             if (loadingIndicator && message.roomCode === currentRoomCode) {
                 loadingIndicator.remove();
@@ -1296,51 +1286,123 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Debug information about sync state
         logMessage(`Received round sync for round ${syncData.roundNumber} (our round: ${gameState.roundNumber})`, 'info');
+        logMessage(`Sync data: hostScore=${syncData.hostScore}, guestScore=${syncData.guestScore}, cardFront=${syncData.cardFront}`, 'info');
+        logMessage(`Our state: hostScore=${gameState.hostScore}, guestScore=${gameState.guestScore}, currentCardIndex=${gameState.currentCardIndex}`, 'info');
         
-        // If we're already ahead, ignore
+        // If the message is from ourselves, ignore
+        if (message.senderId === firebaseUid) {
+            logMessage('Ignoring sync message from ourselves', 'info');
+            return;
+        }
+        
+        // If we're already ahead, ignore but still sync scores
         if (syncData.roundNumber < gameState.roundNumber) {
-            logMessage('We are ahead of the sender, ignoring sync', 'info');
+            logMessage('We are ahead of the sender, syncing only scores', 'info');
+            
+            // But still update scores to stay in sync
+            gameState.hostScore = syncData.hostScore;
+            gameState.guestScore = syncData.guestScore;
+            
+            // Update our score display based on whether we're host or guest
+            if (isHost) {
+                gameState.yourScore = syncData.hostScore;
+                gameState.opponentScore = syncData.guestScore;
+            } else {
+                gameState.yourScore = syncData.guestScore;
+                gameState.opponentScore = syncData.hostScore;
+            }
+            
+            // Update UI
+            elements.game.yourScore.textContent = gameState.yourScore;
+            elements.game.opponentScore.textContent = gameState.opponentScore;
             return;
         }
         
         // If we're on the same round, verify card and scores
         if (syncData.roundNumber === gameState.roundNumber) {
-            // Update scores if they don't match
-            if (syncData.hostScore !== gameState.hostScore || syncData.guestScore !== gameState.guestScore) {
-                gameState.hostScore = syncData.hostScore;
-                gameState.guestScore = syncData.guestScore;
-                
-                // Update our score display based on whether we're host or guest
-                if (isHost) {
-                    gameState.yourScore = syncData.hostScore;
-                    gameState.opponentScore = syncData.guestScore;
-        } else {
-                    gameState.yourScore = syncData.guestScore;
-                    gameState.opponentScore = syncData.hostScore;
-                }
-                
-                // Update UI
-                elements.game.yourScore.textContent = gameState.yourScore;
-                elements.game.opponentScore.textContent = gameState.opponentScore;
-                
-                logMessage('Updated scores to match sync data', 'info');
+            // Always update scores to ensure consistency
+            gameState.hostScore = syncData.hostScore;
+            gameState.guestScore = syncData.guestScore;
+            
+            // Update our score display based on whether we're host or guest
+            if (isHost) {
+                gameState.yourScore = syncData.hostScore;
+                gameState.opponentScore = syncData.guestScore;
+            } else {
+                gameState.yourScore = syncData.guestScore;
+                gameState.opponentScore = syncData.hostScore;
             }
+            
+            // Update UI
+            elements.game.yourScore.textContent = gameState.yourScore;
+            elements.game.opponentScore.textContent = gameState.opponentScore;
             
             // Verify we're on the same card
             const currentCard = gameState.gameCards[gameState.currentCardIndex];
-            if (currentCard && currentCard.front !== syncData.cardFront) {
+            if (!currentCard || currentCard.front !== syncData.cardFront) {
                 logMessage('Card mismatch detected, adjusting...', 'warning');
                 
                 // Find the correct card in our deck
                 const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
                 if (cardIndex !== -1) {
+                    // Save current state before changing
+                    const wasAnswered = gameState.hasAnswered;
+                    const wasOpponentAnswered = gameState.opponentAnswered;
+                    
+                    // Update card index
                     gameState.currentCardIndex = cardIndex;
                     
-                    // Update UI with the correct card
+                    // Reset the UI to show the correct card
                     elements.game.cardQuestion.textContent = gameState.gameCards[cardIndex].front;
+                    
+                    // If we hadn't answered yet, we need to reset the options
+                    if (!wasAnswered) {
+                        // Re-render options for this card
+                        elements.game.optionsContainer.innerHTML = '';
+                        
+                        // Get deterministic shuffle seed
+                        const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
+                            return acc + char.charCodeAt(0);
+                        }, 0) + gameState.roundNumber * 100;
+                        
+                        // Create a copy of options to shuffle
+                        const currentCard = gameState.gameCards[cardIndex];
+                        const shuffledOptions = [...currentCard.options];
+                        deterministicShuffle(shuffledOptions, optionsSeed);
+                        
+                        // Recreate option buttons
+                        shuffledOptions.forEach((option, index) => {
+                            const optionCol = document.createElement('div');
+                            optionCol.className = 'col-md-6';
+                            
+                            const optionBtn = document.createElement('button');
+                            optionBtn.className = 'btn option-btn';
+                            optionBtn.textContent = option;
+                            optionBtn.dataset.index = index;
+                            optionBtn.dataset.value = option;
+                            optionBtn.addEventListener('click', () => submitAnswerLocally(option));
+                            
+                            optionCol.appendChild(optionBtn);
+                            elements.game.optionsContainer.appendChild(optionCol);
+                        });
+                    }
+                    
+                    // Restore answer state
+                    gameState.hasAnswered = wasAnswered;
+                    gameState.opponentAnswered = wasOpponentAnswered;
+                    
                     logMessage(`Adjusted to card at index ${cardIndex}`, 'success');
+                } else {
+                    logMessage(`Could not find card with front: ${syncData.cardFront}`, 'error');
                 }
+            }
+            
+            // If both players have answered, prepare for next round
+            if (gameState.hasAnswered && gameState.opponentAnswered) {
+                logMessage('Both players have answered, preparing for next round', 'info');
+                setTimeout(startNextRound, 500); // Short timeout to allow UI to update
             }
             
             return;
@@ -1356,10 +1418,10 @@ document.addEventListener('DOMContentLoaded', function() {
             gameState.guestScore = syncData.guestScore;
             
             // Update our score display based on whether we're host or guest
-        if (isHost) {
+            if (isHost) {
                 gameState.yourScore = syncData.hostScore;
                 gameState.opponentScore = syncData.guestScore;
-        } else {
+            } else {
                 gameState.yourScore = syncData.guestScore;
                 gameState.opponentScore = syncData.hostScore;
             }
@@ -1368,7 +1430,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const cardIndex = gameState.gameCards.findIndex(card => card.front === syncData.cardFront);
             if (cardIndex !== -1) {
                 gameState.currentCardIndex = cardIndex - 1; // -1 because startNextRound will increment
+            } else {
+                // If we can't find the card, use the difference between current and sync round to calculate index
+                const roundDifference = syncData.roundNumber - gameState.roundNumber;
+                gameState.currentCardIndex = Math.min(
+                    gameState.currentCardIndex + roundDifference - 1,
+                    gameState.gameCards.length - 2
+                );
+                logMessage(`Could not find card, estimated index using round difference: ${gameState.currentCardIndex + 1}`, 'warning');
             }
+            
+            // Reset answer state
+            gameState.hasAnswered = false;
+            gameState.opponentAnswered = false;
             
             // Start the next round to align with the sender
             startNextRound();
@@ -1660,12 +1734,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Start the next round
     function startNextRound() {
-        // Move to next card
-        gameState.currentCardIndex++;
-        gameState.roundNumber++;
+        // Reset state for the new round
         gameState.hasAnswered = false;
         gameState.opponentAnswered = false;
         gameState.selectedOption = null;
+        
+        // Move to next card
+        gameState.currentCardIndex++;
+        gameState.roundNumber++;
+        
+        // Clear any previous answer feedback
+        elements.game.answerFeedback.style.display = 'none';
         
         // Check if game is over
         if (gameState.currentCardIndex >= gameState.gameCards.length) {
@@ -1680,12 +1759,12 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.game.yourScore.textContent = gameState.yourScore;
         elements.game.opponentScore.textContent = gameState.opponentScore;
         elements.game.cardQuestion.textContent = currentCard.front;
-        elements.game.answerFeedback.style.display = 'none';
         
         // Create option buttons (using deterministic shuffle with same seed for consistency)
         elements.game.optionsContainer.innerHTML = '';
         
         // Get a seed for this specific card based on room code and round number
+        // This ensures both players see the same order of options
         const optionsSeed = currentRoomCode.split('').reduce((acc, char) => {
             return acc + char.charCodeAt(0);
         }, 0) + gameState.roundNumber * 100;
@@ -1710,24 +1789,49 @@ document.addEventListener('DOMContentLoaded', function() {
             elements.game.optionsContainer.appendChild(optionCol);
         });
         
-        // Send round synchronization message to ensure both players are on the same round
-        sendRoundSyncMessage();
-        
+        // Log new round information
         logMessage(`Round ${gameState.roundNumber} started with card: ${currentCard.front}`, 'info');
+        
+        // Send round synchronization message with a slight delay to ensure UI is updated first
+        setTimeout(() => {
+            // Send multiple sync messages for redundancy
+            sendRoundSyncMessage();
+            
+            // Send another sync message after a short delay
+            setTimeout(sendRoundSyncMessage, 500);
+        }, 100);
     }
     
     // Send a round synchronization message to ensure both players are on the same round
     function sendRoundSyncMessage() {
-        if (stompClient && stompClient.connected) {
+        if (!stompClient || !stompClient.connected) {
+            logMessage('Could not send round sync: not connected', 'warning');
+            return;
+        }
+        
+        try {
+            // Get current card
+            const currentCard = gameState.gameCards[gameState.currentCardIndex];
+            if (!currentCard) {
+                logMessage('Could not send round sync: invalid card index', 'warning');
+                return;
+            }
+            
             const roundSyncData = {
                 roomCode: currentRoomCode,
                 roundNumber: gameState.roundNumber,
                 hostScore: gameState.hostScore,
                 guestScore: gameState.guestScore,
                 currentCardIndex: gameState.currentCardIndex,
-                cardFront: gameState.gameCards[gameState.currentCardIndex].front
+                cardFront: currentCard.front,
+                cardBack: currentCard.back,
+                hasAnswered: gameState.hasAnswered,
+                opponentAnswered: gameState.opponentAnswered,
+                totalCards: gameState.gameCards.length,
+                timestamp: Date.now()
             };
             
+            // Send sync message with detailed information
             stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
                 { 
                     firebaseUid: firebaseUid,
@@ -1739,11 +1843,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     senderId: firebaseUid,
                     senderUsername: playerUsername,
                     timestamp: Date.now(),
-                    syncData: roundSyncData
+                    syncData: roundSyncData,
+                    isHost: isHost
                 })
             );
             
             logMessage(`Sent round sync message for round ${gameState.roundNumber}`, 'info');
+        } catch (error) {
+            logMessage(`Error sending round sync: ${error.message}`, 'error');
         }
     }
 
