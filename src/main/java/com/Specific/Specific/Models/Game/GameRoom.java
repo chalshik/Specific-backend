@@ -6,25 +6,32 @@ import org.aspectj.weaver.patterns.TypePatternQuestions;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class GameRoom {
     public enum GameStatus {
         WAITING, ACTIVE, FINISHED
     }
+    private ConcurrentHashMap<Player,Boolean> answeredPlayers = new ConcurrentHashMap<>();
     private String roomcode;
     private GameStatus status;
     private List<Player> players = new ArrayList<>();
     private List<Question> questions = new ArrayList<>();
-
-    private int currentRound;
-    private int maxRound = 10;
     private int questionIndex;
     public GameRoom(String roomcode, List<Question> questions) {
         this.roomcode = roomcode;
         this.questions = questions;
         this.status = GameStatus.WAITING;
-        this.currentRound = 0;
         this.questionIndex = 0;
+    }
+    public boolean submitAns(Player player){
+        answeredPlayers.put(player,true);
+       if(answeredPlayers.size()==players.size()&&questionIndex<questions.size()-1){
+            questionIndex++;
+            answeredPlayers.clear();
+            return true;
+        }
+        return false;
     }
     public void addPlayer(Player player){
         players.add(player);
@@ -61,21 +68,9 @@ public class GameRoom {
         this.questions = questions;
     }
 
-    public int getCurrentRound() {
-        return currentRound;
-    }
 
-    public void setCurrentRound(int currentRound) {
-        this.currentRound = currentRound;
-    }
 
-    public int getMaxRound() {
-        return maxRound;
-    }
 
-    public void setMaxRound(int maxRound) {
-        this.maxRound = maxRound;
-    }
 
     public int getQuestionIndex() {
         return questionIndex;

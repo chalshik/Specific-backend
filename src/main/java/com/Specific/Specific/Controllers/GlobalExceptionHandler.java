@@ -55,6 +55,30 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getMessage());
     }
     
+    @ExceptionHandler(GameRoomNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse handleGameRoomNotFound(GameRoomNotFoundException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
+    @ExceptionHandler(GameAlreadyStartedException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse handleGameAlreadyStarted(GameAlreadyStartedException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
+    @ExceptionHandler(PlayerAlreadyExistsException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse handlePlayerAlreadyExists(PlayerAlreadyExistsException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
+    @ExceptionHandler(InvalidGameInputException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse handleInvalidGameInput(InvalidGameInputException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+    
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse handleValidationExceptions(MethodArgumentNotValidException ex) {
