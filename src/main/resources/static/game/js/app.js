@@ -498,19 +498,69 @@ document.addEventListener('DOMContentLoaded', function() {
                 ...additionalData
             };
             
-            stompClient.send(
-                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                {
-                    firebaseUid: firebaseUid,
-                    username: playerUsername
-                }, 
-                JSON.stringify(message)
-            );
+            // Ensure the message is properly structured (not nested)
+            const cleanMessage = { ...message };
             
-            logMessage(`Sent ${messageType} message to room ${currentRoomCode}`, 'info');
-            return true;
+            // Check if there's a nested type and fix it
+            if (typeof cleanMessage.type === 'object') {
+                logMessage('Fixing nested type before sending', 'warning');
+                // If type is an object with a type property, flatten it
+                if (cleanMessage.type.type) {
+                    const nestedData = { ...cleanMessage.type };
+                    delete cleanMessage.type;
+                    cleanMessage.type = nestedData.type;
+                    
+                    // Merge other properties from the nested object
+                    Object.keys(nestedData).forEach(key => {
+                        if (key !== 'type' && !cleanMessage[key]) {
+                            cleanMessage[key] = nestedData[key];
+                        }
+                    });
+                }
+            }
+            
+            // Validate the message before sending
+            if (!cleanMessage.type || typeof cleanMessage.type !== 'string') {
+                logMessage(`Invalid message type: ${cleanMessage.type}`, 'error');
+                return false;
+            }
+            
+            // Add helpful debug info
+            logMessage(`Sending ${cleanMessage.type} message to room ${currentRoomCode}`, 'info');
+            
+            // Stringify with proper error handling
+            let messageString;
+            try {
+                messageString = JSON.stringify(cleanMessage);
+            } catch (jsonError) {
+                logMessage(`Error stringifying message: ${jsonError.message}`, 'error');
+                return false;
+            }
+            
+            // Send the message with retry logic
+            const sendWithRetry = (retries = 2) => {
+                try {
+                    stompClient.send(
+                        CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                        {
+                            firebaseUid: firebaseUid,
+                            username: playerUsername
+                        }, 
+                        messageString
+                    );
+                    return true;
+                } catch (sendError) {
+                    logMessage(`Error sending ${messageType} message: ${sendError.message}`, 'error');
+                    if (retries > 0) {
+                        setTimeout(() => sendWithRetry(retries - 1), 500);
+                    }
+                    return false;
+                }
+            };
+            
+            return sendWithRetry();
         } catch (e) {
-            logMessage(`Error sending ${messageType} message: ${e.message}`, 'error');
+            logMessage(`Error preparing ${messageType} message: ${e.message}`, 'error');
             return false;
         }
     }
@@ -981,26 +1031,75 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 message = JSON.parse(payload.body);
                 
-                // Check for nested type issue (common error from logs)
-                if (typeof message.type === 'object' && message.type.type) {
-                    logMessage(`Fixing nested type issue in message: ${JSON.stringify(message.type)}`, 'warning');
-                    message = message.type; // Extract the actual message from the nested structure
+                // Fix nested message structures for ALL message types
+                if (typeof message.type === 'object') {
+                    logMessage(`Fixing nested message: ${JSON.stringify(message.type).substring(0, 100)}...`, 'warning');
+                    // The actual message is nested inside the type property
+                    message = message.type;
+                    logMessage(`Fixed message type: ${message.type}`, 'info');
                 }
                 
                 // Validate message has required fields
                 if (!message.type) {
                     logMessage(`Message without proper type: ${payload.body.substring(0, 100)}...`, 'error');
-                    // Try to parse it anyway if it has roomCode, might be a GAME_START_ACK
-                    if (payload.body.includes('GAME_START_ACK') && payload.body.includes('roomCode')) {
-                        logMessage('Attempting to salvage message as GAME_START_ACK', 'info');
-                        try {
-                            if (typeof message === 'string') {
-                                message = JSON.parse(message);
+                    
+                    // Try to extract type from string if possible
+                    const typeMatch = /"type":"([^"]+)"/.exec(payload.body);
+                    if (typeMatch && typeMatch[1]) {
+                        const extractedType = typeMatch[1];
+                        logMessage(`Extracted message type: ${extractedType}`, 'info');
+                        
+                        // Handle specific message types we can recover
+                        if (extractedType === 'GAME_START_ACK' || 
+                            extractedType === 'ANSWER_SUBMITTED' || 
+                            extractedType === 'ROUND_SYNC') {
+                            
+                            logMessage(`Attempting to salvage message as ${extractedType}`, 'info');
+                            try {
+                                // Extract room code if possible
+                                const roomMatch = /"roomCode":"([^"]+)"/.exec(payload.body);
+                                const roomCode = roomMatch ? roomMatch[1] : currentRoomCode;
+                                
+                                // Create a basic valid message
+                                const salvageMessage = {
+                                    type: extractedType,
+                                    roomCode: roomCode,
+                                    timestamp: Date.now()
+                                };
+                                
+                                // Add additional fields based on message type
+                                if (extractedType === 'ANSWER_SUBMITTED') {
+                                    // Try to extract scores
+                                    const hostScoreMatch = /"hostScore":(\d+)/.exec(payload.body);
+                                    const guestScoreMatch = /"guestScore":(\d+)/.exec(payload.body);
+                                    
+                                    salvageMessage.hostScore = hostScoreMatch ? parseInt(hostScoreMatch[1]) : gameState.hostScore;
+                                    salvageMessage.guestScore = guestScoreMatch ? parseInt(guestScoreMatch[1]) : gameState.guestScore;
+                                    salvageMessage.senderUsername = 'Opponent';
+                                    salvageMessage.hasAnswered = true;
+                                    
+                                    // Route to appropriate handler
+                                    handleAnswerSubmitted(salvageMessage);
+                                    return;
+                                } else if (extractedType === 'GAME_START_ACK') {
+                                    // Handle game start acknowledgment
+                                    handleGameStartAck(salvageMessage);
+                                    return;
+                                } else if (extractedType === 'ROUND_SYNC') {
+                                    // Try to extract round number
+                                    const roundMatch = /"roundNumber":(\d+)/.exec(payload.body);
+                                    const cardIndexMatch = /"currentCardIndex":(\d+)/.exec(payload.body);
+                                    
+                                    salvageMessage.roundNumber = roundMatch ? parseInt(roundMatch[1]) : gameState.roundNumber;
+                                    salvageMessage.currentCardIndex = cardIndexMatch ? parseInt(cardIndexMatch[1]) : gameState.currentCardIndex;
+                                    
+                                    // Handle round sync
+                                    handleRoundSync(salvageMessage);
+                                    return;
+                                }
+                            } catch (e) {
+                                logMessage(`Failed to salvage message: ${e.message}`, 'error');
                             }
-                            message.type = 'GAME_START_ACK';
-                            handleGameStartAck(message);
-                        } catch (e) {
-                            logMessage(`Failed to salvage message: ${e.message}`, 'error');
                         }
                     }
                     return;
@@ -1011,26 +1110,60 @@ document.addEventListener('DOMContentLoaded', function() {
                 logMessage(`Error parsing message: ${parseError.message}`, 'error');
                 logMessage(`Raw payload: ${payload.body.substring(0, 100)}...`, 'error');
                 
-                // Try to salvage the message if it looks like GAME_START_ACK
-                if (payload.body.includes('GAME_START_ACK') && payload.body.includes('roomCode')) {
-                    logMessage('Attempting to salvage message as GAME_START_ACK', 'info');
-                    try {
-                        const regexMatch = /roomCode":"([^"]+)"/.exec(payload.body);
-                        if (regexMatch && regexMatch[1]) {
-                            const roomCode = regexMatch[1];
-                            if (roomCode === currentRoomCode) {
-                                logMessage('Manually handling as game start acknowledgment', 'info');
-                                handleGameStartAck({
-                                    type: 'GAME_START_ACK',
-                                    roomCode: roomCode,
-                                    senderUsername: 'Guest Player',
-                                    timestamp: Date.now()
-                                });
-                            }
+                // Try to salvage structurally invalid messages
+                try {
+                    // Check for common message types in the raw payload
+                    if (payload.body.includes('ANSWER_SUBMITTED')) {
+                        logMessage('Attempting to salvage as ANSWER_SUBMITTED message', 'info');
+                        
+                        // Create a minimal valid message with opponent answer
+                        const salvageMessage = {
+                            type: 'ANSWER_SUBMITTED',
+                            roomCode: currentRoomCode,
+                            senderUsername: 'Opponent',
+                            hostScore: gameState.hostScore,
+                            guestScore: gameState.guestScore,
+                            timestamp: Date.now()
+                        };
+                        
+                        // Try to extract scores if possible
+                        const hostScoreMatch = /"hostScore":(\d+)/.exec(payload.body);
+                        const guestScoreMatch = /"guestScore":(\d+)/.exec(payload.body);
+                        
+                        if (hostScoreMatch) {
+                            salvageMessage.hostScore = parseInt(hostScoreMatch[1]);
                         }
-                    } catch (e) {
-                        logMessage(`Failed to salvage message: ${e.message}`, 'error');
+                        
+                        if (guestScoreMatch) {
+                            salvageMessage.guestScore = parseInt(guestScoreMatch[1]);
+                        }
+                        
+                        // Handle the reconstructed message
+                        handleAnswerSubmitted(salvageMessage);
+                        return;
+                    } else if (payload.body.includes('GAME_START_ACK')) {
+                        logMessage('Attempting to salvage as GAME_START_ACK message', 'info');
+                        
+                        // Extract room code if possible
+                        const roomMatch = /"roomCode":"([^"]+)"/.exec(payload.body);
+                        const roomCode = roomMatch ? roomMatch[1] : currentRoomCode;
+                        
+                        // Create basic valid message
+                        const salvageMessage = {
+                            type: 'GAME_START_ACK',
+                            roomCode: roomCode,
+                            senderUsername: 'Guest Player',
+                            timestamp: Date.now()
+                        };
+                        
+                        // Handle the message
+                        if (roomCode === currentRoomCode) {
+                            handleGameStartAck(salvageMessage);
+                        }
+                        return;
                     }
+                } catch (salvageError) {
+                    logMessage(`Failed to salvage message: ${salvageError.message}`, 'error');
                 }
                 return;
             }
@@ -1749,6 +1882,11 @@ document.addEventListener('DOMContentLoaded', function() {
             window.answerSyncTimeout = null;
         }
         
+        if (window.forceSyncInterval) {
+            clearInterval(window.forceSyncInterval);
+            window.forceSyncInterval = null;
+        }
+        
         // Remove any indicator elements
         const waitingIndicator = document.getElementById('waiting-indicator');
         if (waitingIndicator) {
@@ -1764,6 +1902,7 @@ document.addEventListener('DOMContentLoaded', function() {
         gameState.hasAnswered = false;
         gameState.opponentAnswered = false;
         gameState.selectedOption = null;
+        gameState.roundStartTime = Date.now();
         
         // Move to next card
         gameState.currentCardIndex++;
@@ -1823,6 +1962,96 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(sendRoundSyncMessage, 500);
             setTimeout(sendRoundSyncMessage, 1500);
         }, 100);
+        
+        // Set up a force-sync interval to handle lost messages
+        window.forceSyncInterval = setInterval(() => {
+            // Check if both players have answered but we're still on this round
+            if (gameState.hasAnswered && gameState.opponentAnswered) {
+                logMessage('Force sync: Both players have answered but round hasn\'t advanced', 'warning');
+                clearInterval(window.forceSyncInterval);
+                
+                // Show transition indicator
+                if (!document.getElementById('next-round-indicator')) {
+                    const nextRoundIndicator = document.createElement('div');
+                    nextRoundIndicator.id = 'next-round-indicator';
+                    nextRoundIndicator.className = 'alert alert-info mt-3';
+                    nextRoundIndicator.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <span>Force advancing to next question...</span>
+                        </div>
+                    `;
+                    
+                    if (elements.game.answerFeedback.style.display === 'none') {
+                        elements.game.cardQuestion.parentNode.prepend(nextRoundIndicator);
+                    } else {
+                        elements.game.answerFeedback.after(nextRoundIndicator);
+                    }
+                }
+                
+                // Force next round after a short delay
+                window.nextRoundTimeout = setTimeout(() => {
+                    startNextRound();
+                }, 1500);
+            }
+            // If this round has been active for too long without completion, force a timeout
+            else if (Date.now() - gameState.roundStartTime > 30000) { // 30 seconds max per round
+                logMessage('Force sync: Round has been active too long, forcing next round', 'warning');
+                clearInterval(window.forceSyncInterval);
+                
+                // Mark opponent as answered if they haven't yet
+                if (!gameState.opponentAnswered) {
+                    gameState.opponentAnswered = true;
+                    
+                    // Show forced advance indicator
+                    const timeoutIndicator = document.createElement('div');
+                    timeoutIndicator.id = 'timeout-indicator';
+                    timeoutIndicator.className = 'alert alert-warning mt-3';
+                    timeoutIndicator.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <span>Round timed out. Advancing to next question...</span>
+                        </div>
+                    `;
+                    
+                    if (elements.game.answerFeedback.style.display === 'none') {
+                        elements.game.cardQuestion.parentNode.prepend(timeoutIndicator);
+                    } else {
+                        elements.game.answerFeedback.after(timeoutIndicator);
+                    }
+                    
+                    // If we haven't answered yet, auto-submit a wrong answer
+                    if (!gameState.hasAnswered) {
+                        gameState.hasAnswered = true;
+                        
+                        // Show timeout message
+                        elements.game.answerFeedback.style.display = 'block';
+                        elements.game.answerFeedback.className = 'alert alert-warning';
+                        elements.game.answerFeedback.textContent = `Time ran out. The correct answer was: ${currentCard.back}`;
+                        
+                        // Disable all option buttons
+                        const optionButtons = elements.game.optionsContainer.querySelectorAll('.option-btn');
+                        optionButtons.forEach(button => {
+                            button.disabled = true;
+                            
+                            // Highlight correct answer
+                            if (button.dataset.value === currentCard.back) {
+                                button.classList.add('correct');
+                            }
+                        });
+                    }
+                    
+                    // Force next round after a delay
+                    window.nextRoundTimeout = setTimeout(() => {
+                        startNextRound();
+                    }, 3000);
+                }
+            }
+            // Send periodic sync messages
+            else if (gameState.hasAnswered) {
+                sendRoundSyncMessage();
+            }
+        }, 5000); // Check every 5 seconds
         
         // Show the game section if not already visible
         if (!elements.sections.game.classList.contains('active')) {
