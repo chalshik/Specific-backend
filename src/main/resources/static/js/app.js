@@ -992,7 +992,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Handle room joined message
     function handleRoomJoined(message) {
-        logMessage(`${message.senderUsername} joined the room: ${message.roomCode}`, 'info');
+        logMessage(`Processing room join: ${message.senderUsername} joined room: ${message.roomCode}`, 'info');
         
         // Check if this is a message for our current room
         if (message.roomCode !== currentRoomCode) {
@@ -1020,11 +1020,30 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Different handling based on whether we're host or guest
         if (isHost) {
-            // As host, add the joining user to our player list if not already there
-            const existingPlayer = Array.from(elements.create.playersList.children)
+            // As host, ensure we're showing in our own player list first
+            const hostExists = Array.from(elements.create.playersList.children)
+                .some(item => item.textContent.includes(playerUsername) && item.textContent.includes('Host'));
+                
+            if (!hostExists) {
+                // Add ourselves (host) to the players list
+                const hostItem = document.createElement('li');
+                hostItem.className = 'list-group-item';
+                hostItem.innerHTML = `
+                    <i class="fas fa-user player-icon"></i>
+                    ${playerUsername} (You)
+                    <span class="badge bg-primary host-badge">Host</span>
+                `;
+                elements.create.playersList.appendChild(hostItem);
+                logMessage('Added self (host) to player list', 'info');
+            }
+            
+            // Now check for the joining guest
+            if (!isSelfMessage) {
+                // Check if guest is already in the list
+                const existingGuest = Array.from(elements.create.playersList.children)
                 .some(item => item.textContent.includes(message.senderUsername));
                 
-            if (!existingPlayer && !isSelfMessage) {
+                if (!existingGuest) {
                 // Add guest to players list
                 const guestItem = document.createElement('li');
                 guestItem.className = 'list-group-item';
@@ -1040,19 +1059,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 logMessage(`Guest ${message.senderUsername} added to room - enabling Start Game button`, 'success');
                 
                 // Show success message
-                const successMessage = document.createElement('div');
-                successMessage.id = 'guest-joined-notification';
-                successMessage.className = 'alert alert-success mt-3';
-                successMessage.innerHTML = `<strong>${message.senderUsername}</strong> has joined your room!`;
-                elements.create.roomInfo.appendChild(successMessage);
-                
-                // Auto-remove success message after 3 seconds
-                setTimeout(() => {
-                    const notification = document.getElementById('guest-joined-notification');
-                    if (notification) {
-                        notification.remove();
-                    }
-                }, 3000);
+                    showSuccessToast('Guest Joined', `${message.senderUsername} has joined your room!`, 3);
                 
                 // Send acknowledgement to ensure bidirectional visibility
                 stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
@@ -1068,78 +1075,98 @@ document.addEventListener('DOMContentLoaded', function() {
                     })
                 );
             }
-        } else if (!isSelfMessage) {
-            // As guest, handle host messages
-            const isHostMessage = message.isHostReply === true;
-            const isHostSender = message.type === 'ROOM_CREATED' || message.isHost === true;
-            
-            // Create host item for display
-            const hostItem = document.createElement('li');
-            hostItem.className = 'list-group-item';
-            hostItem.innerHTML = `
+            }
+        } else { // We are a guest
+            // Ensure we're showing in our own player list first
+            const selfExists = Array.from(elements.join.joinedPlayersList.children)
+                .some(item => item.textContent.includes(playerUsername) && item.textContent.includes('You'));
+                
+            if (!selfExists) {
+                // Add ourselves (guest) to the players list
+                const guestItem = document.createElement('li');
+                guestItem.className = 'list-group-item';
+                guestItem.innerHTML = `
                 <i class="fas fa-user player-icon"></i>
-                ${message.senderUsername}
-                <span class="badge bg-primary host-badge">Host</span>
+                    ${playerUsername} (You)
+                    <span class="badge bg-secondary host-badge">Guest</span>
             `;
+                elements.join.joinedPlayersList.appendChild(guestItem);
+                logMessage('Added self (guest) to player list', 'info');
+            }
             
-            // Add to joined players list if not already there
+            // If message is from another player (likely the host)
+            if (!isSelfMessage) {
+                // Check if host is already in the list
             const existingHost = Array.from(elements.join.joinedPlayersList.children)
                 .some(item => item.textContent.includes(message.senderUsername) && 
                               item.textContent.includes('Host'));
                 
             if (!existingHost) {
+                    // Assume it's the host if it's not us and we're the guest
+                    const hostItem = document.createElement('li');
+                    hostItem.className = 'list-group-item';
+                    hostItem.innerHTML = `
+                        <i class="fas fa-user player-icon"></i>
+                        ${message.senderUsername}
+                        <span class="badge bg-primary host-badge">Host</span>
+                    `;
                 elements.join.joinedPlayersList.appendChild(hostItem);
-                logMessage(`Host ${message.senderUsername} found in room`, 'success');
+                    logMessage(`Host ${message.senderUsername} added to player list`, 'success');
+                    
+                    // Show success message
+                    showSuccessToast('Joined Room', `You've joined ${message.senderUsername}'s room!`, 3);
                 
                 // Ensure our UI is properly showing the room
                 elements.join.joinedRoomInfo.style.display = 'block';
                 elements.join.joinedRoomPlayers.style.display = 'block';
                 
-                // Show success message
-                const successMessage = document.createElement('div');
-                successMessage.id = 'joined-success-notification';
-                successMessage.className = 'alert alert-success mt-3';
-                successMessage.innerHTML = `Successfully joined <strong>${message.senderUsername}'s</strong> room!`;
-                elements.join.joinedRoomInfo.appendChild(successMessage);
-                
-                // Auto-remove success message after 3 seconds
-                setTimeout(() => {
-                    const notification = document.getElementById('joined-success-notification');
-                    if (notification) {
-                        notification.remove();
-                    }
-                }, 3000);
-                
                 // Send back another confirmation to ensure host sees us
-                if (!isHostMessage) {
-                    stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, {}, JSON.stringify({
-                        type: 'GUEST_JOINED',
-                        roomCode: currentRoomCode,
-                        senderId: firebaseUid,
-                        senderUsername: playerUsername,
-                        timestamp: Date.now(),
-                        isGuestReply: true
-                    }));
+                    sendRoomMessage('GUEST_JOINED', {
+                        isGuestReply: true,
+                        message: `Guest ${playerUsername} acknowledges host ${message.senderUsername}`
+                    });
                 }
             }
-            
-            if (isHostMessage) {
-                logMessage(`Host ${message.senderUsername} acknowledged our join`, 'success');
-                
-                // Remove any waiting for host messages
-                const waitingMessage = document.getElementById('joined-status');
-                if (waitingMessage && waitingMessage.textContent.includes('waiting for host')) {
-                    waitingMessage.remove();
-                }
-            }
+        }
+        
+        // Always make sure the UI is properly updated
+        if (isHost) {
+            elements.create.roomInfo.style.display = 'block';
+            elements.create.roomPlayers.style.display = 'block';
+        } else {
+            elements.join.joinedRoomInfo.style.display = 'block';
+            elements.join.joinedRoomPlayers.style.display = 'block';
         }
     }
 
     // Handle incoming WebSocket messages
     function onMessageReceived(payload) {
         try {
-            const message = JSON.parse(payload.body);
-            logMessage(`Received message: ${message.type}`, 'info');
+            let message;
+            
+            // Check if message is already an object (possibly pre-parsed)
+            if (typeof payload.body === 'object') {
+                message = payload.body;
+                logMessage('Received pre-parsed message object', 'info');
+            } else {
+                // Try to parse the message body as JSON
+                try {
+                    message = JSON.parse(payload.body);
+                } catch (parseError) {
+                    logMessage(`Failed to parse message as JSON: ${parseError.message}`, 'error');
+                    logMessage(`Raw message: ${payload.body}`, 'error');
+                    return; // Cannot process unparseable messages
+                }
+            }
+            
+            // Check if message is valid
+            if (!message || typeof message !== 'object') {
+                logMessage(`Invalid message format: ${typeof message}`, 'error');
+                return;
+            }
+            
+            // Log the message type
+            logMessage(`Received message: ${message.type || 'unknown type'}`, 'info');
             
             // Handle different message types
             switch (message.type) {
@@ -1186,13 +1213,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             
                             if (!hostFound) {
                                 // Add host to player list
-                                const hostItem = document.createElement('li');
-                                hostItem.className = 'list-group-item';
-                                hostItem.innerHTML = `
-                                    <i class="fas fa-user player-icon"></i>
-                                    ${message.senderUsername}
-                                    <span class="badge bg-primary host-badge">Host</span>
-                                `;
+                            const hostItem = document.createElement('li');
+                            hostItem.className = 'list-group-item';
+                            hostItem.innerHTML = `
+                                <i class="fas fa-user player-icon"></i>
+                                ${message.senderUsername}
+                                <span class="badge bg-primary host-badge">Host</span>
+                            `;
                                 playersList.appendChild(hostItem);
                             }
                         }
@@ -1212,7 +1239,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     handleAnswerSubmitted(message);
                     break;
                 case 'ROUND_SYNC':
-                    handleRoundSync(message);
+                        handleRoundSync(message);
                     break;
                 case 'NEXT_ROUND':
                     handleNextRound(message);
@@ -1246,13 +1273,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     break;
                 default:
-                    logMessage(`Unknown message type: ${message.type}`, 'warning');
-                    // Try to handle anyway if it contains room info
-                    if (message.roomCode === currentRoomCode && message.senderUsername) {
+                    // Handle the case where message is an object without a type
+                    if (message && typeof message === 'object') {
+                        logMessage(`Message without proper type: ${JSON.stringify(message).substring(0, 100)}...`, 'warning');
+                        
+                        // Try to extract room code and username if they exist
+                        if (message.roomCode && message.roomCode === currentRoomCode) {
+                            if (message.senderUsername || message.senderId) {
+                                // Treat as join message with fabricated type
                         handleRoomJoined({
                             ...message,
-                            type: 'ROOM_JOINED' // Treat as join message
+                                    type: 'ROOM_JOINED',
+                                    senderUsername: message.senderUsername || 'Unknown User',
+                                    senderId: message.senderId || 'unknown-id'
                         });
+                            }
+                        }
+                    } else {
+                        logMessage(`Unknown message type: ${message ? message.type : 'undefined'}`, 'warning');
                     }
             }
             
@@ -1265,7 +1303,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
         } catch (error) {
             logMessage(`Error processing message: ${error.message}`, 'error');
-            logMessage(`Problematic payload: ${payload.body}`, 'error');
+            if (payload && payload.body) {
+                logMessage(`Problematic payload: ${typeof payload.body === 'string' ? payload.body : JSON.stringify(payload.body)}`, 'error');
+            }
             
             // Remove loading indicator even on error
             const loadingIndicator = document.getElementById('join-room-loading');
@@ -1297,10 +1337,10 @@ document.addEventListener('DOMContentLoaded', function() {
             gameState.hostScore = message.hostScore;
             gameState.guestScore = message.guestScore;
             
-            if (isHost) {
+                if (isHost) {
                 gameState.yourScore = gameState.hostScore;
                 gameState.opponentScore = gameState.guestScore;
-            } else {
+                } else {
                 gameState.yourScore = gameState.guestScore;
                 gameState.opponentScore = gameState.hostScore;
             }
@@ -1317,7 +1357,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return; // Not for our room or it's our own message
         }
         
-        logMessage(`Opponent answered: ${message.optionText} (${message.isCorrect ? 'Correct' : 'Incorrect'})`, 'info');
+        logMessage(`Opponent answered: ${message.optionText || 'unknown option'} (${message.isCorrect ? 'Correct' : 'Incorrect'})`, 'info');
         
         // Mark that opponent has answered
         gameState.opponentAnswered = true;
@@ -1326,11 +1366,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (message.isCorrect) {
             if (isHost) {
                 // We're host, so opponent is guest
-                gameState.guestScore = message.guestScore;
+                gameState.guestScore = message.guestScore || (gameState.guestScore + 1);
                 gameState.opponentScore = gameState.guestScore;
             } else {
                 // We're guest, so opponent is host
-                gameState.hostScore = message.hostScore;
+                gameState.hostScore = message.hostScore || (gameState.hostScore + 1);
                 gameState.opponentScore = gameState.hostScore;
             }
             document.getElementById('opponentScore').textContent = gameState.opponentScore;
@@ -1344,13 +1384,21 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Show notification that opponent answered
         showSuccessToast('Opponent Answered', 
-            `Your opponent chose "${message.optionText}" and was ${message.isCorrect ? 'correct' : 'incorrect'}.`, 3);
+            `Your opponent answered and was ${message.isCorrect ? 'correct' : 'incorrect'}.`, 3);
         
         // If we've also answered, move to next round after delay
         if (gameState.hasAnswered) {
             logMessage('Both players have answered, moving to next round soon', 'info');
+            
+            // Don't wait for setTimeout to complete - mark with flag
+            window.nextRoundScheduled = true;
+            
             setTimeout(() => {
-                startNextRound();
+                // Only proceed if another next round hasn't been triggered
+                if (window.nextRoundScheduled) {
+                    window.nextRoundScheduled = false;
+            startNextRound();
+                }
             }, 2000);
         }
     }
@@ -1381,61 +1429,61 @@ document.addEventListener('DOMContentLoaded', function() {
         initializeGameCards();
         
         try {
-            // Send multiple start game messages for redundancy using different channels
-            
-            // 1. Send via application endpoint
-            stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, 
-                {
-                    firebaseUid: firebaseUid,
-                    roomCode: currentRoomCode
-                }, 
-                JSON.stringify({
-                    type: 'GAME_STARTED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now()
-                })
-            );
-            
-            // 2. Send directly to room topic for redundancy
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                {
-                    firebaseUid: firebaseUid,
-                    roomCode: currentRoomCode
-                }, 
-                JSON.stringify({
-                    type: 'GAME_STARTED',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now()
-                })
-            );
-            
-            // 3. Try to start game via REST call as well (triple redundancy)
-            fetch(`${CONFIG.API_URL}/api/game/room/${currentRoomCode}/start`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Firebase-Uid': firebaseUid
-                },
-                body: JSON.stringify({
-                    roomCode: currentRoomCode,
-                    hostId: firebaseUid,
-                    hostUsername: playerUsername
-                })
+        // Send multiple start game messages for redundancy using different channels
+        
+        // 1. Send via application endpoint
+        stompClient.send(CONFIG.SOCKET.ENDPOINTS.START, 
+            {
+                firebaseUid: firebaseUid,
+                roomCode: currentRoomCode
+            }, 
+            JSON.stringify({
+                type: 'GAME_STARTED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now()
             })
-            .then(response => {
-                if (response.ok) {
-                    logMessage('REST game start successful', 'success');
-                } else {
-                    logMessage(`REST game start failed with status: ${response.status}`, 'warning');
-                }
+        );
+        
+        // 2. Send directly to room topic for redundancy
+        stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+            {
+                firebaseUid: firebaseUid,
+                roomCode: currentRoomCode
+            }, 
+            JSON.stringify({
+                type: 'GAME_STARTED',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now()
             })
-            .catch(error => {
-                logMessage(`Game start REST error: ${error.message}`, 'warning');
-            });
+        );
+        
+        // 3. Try to start game via REST call as well (triple redundancy)
+        fetch(`${CONFIG.API_URL}/api/game/room/${currentRoomCode}/start`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Firebase-Uid': firebaseUid
+            },
+            body: JSON.stringify({
+                roomCode: currentRoomCode,
+                hostId: firebaseUid,
+                hostUsername: playerUsername
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                logMessage('REST game start successful', 'success');
+            } else {
+                logMessage(`REST game start failed with status: ${response.status}`, 'warning');
+            }
+        })
+        .catch(error => {
+            logMessage(`Game start REST error: ${error.message}`, 'warning');
+        });
         } catch (e) {
             logMessage(`Error sending game start messages: ${e.message}`, 'error');
         }
@@ -1477,38 +1525,38 @@ document.addEventListener('DOMContentLoaded', function() {
             logMessage('Forcing local game start', 'warning');
             
             // Reset game state with static cards
-            gameState = {
-                roundNumber: 0,
-                hostScore: 0,
-                guestScore: 0,
-                yourScore: 0,
-                opponentScore: 0,
-                selectedOption: null,
-                hasAnswered: false,
-                opponentAnswered: false,
+        gameState = {
+            roundNumber: 0,
+            hostScore: 0,
+            guestScore: 0,
+            yourScore: 0,
+            opponentScore: 0,
+            selectedOption: null,
+            hasAnswered: false,
+            opponentAnswered: false,
                 gameCards: [...STATIC_CARDS], // Use static cards
-                currentCardIndex: -1,
+            currentCardIndex: -1,
                 totalRounds: STATIC_CARDS.length // Use all 15 questions
             };
             
             // Ensure we have deterministically shuffled cards with room code as seed
-            const seed = currentRoomCode.split('').reduce((acc, char) => {
-                return acc + char.charCodeAt(0);
-            }, 0);
-            
-            deterministicShuffle(gameState.gameCards, seed);
+        const seed = currentRoomCode.split('').reduce((acc, char) => {
+            return acc + char.charCodeAt(0);
+        }, 0);
+        
+        deterministicShuffle(gameState.gameCards, seed);
             logMessage(`Shuffled ${gameState.gameCards.length} cards with seed ${seed}`, 'info');
-            
-            // Update UI
-            elements.game.yourScore.textContent = 0;
-            elements.game.opponentScore.textContent = 0;
-            
+        
+        // Update UI
+        elements.game.yourScore.textContent = 0;
+        elements.game.opponentScore.textContent = 0;
+        
             // Switch to game view
-            showSection('game');
-            
+        showSection('game');
+        
             // Show toast notification
-            showSuccessToast('Game started!', 'The game has begun. Good luck!');
-            
+        showSuccessToast('Game started!', 'The game has begun. Good luck!');
+        
             // Start first round immediately
             setTimeout(startNextRound, 500);
         }
@@ -1566,9 +1614,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Start first round after a brief delay to ensure both players are ready
-            setTimeout(() => {
+        setTimeout(() => {
                 startNextRound(0);
-            }, 1000);
+        }, 1000);
         } else {
             // Fallback if static cards aren't available
             logMessage('Error: No static cards available for the game', 'error');
@@ -1656,21 +1704,21 @@ document.addEventListener('DOMContentLoaded', function() {
             let seedNumber = 12345;
             
             if (currentRoomCode) {
-                // Use a consistent seed based on the room code for both players
+        // Use a consistent seed based on the room code for both players
                 seedNumber = currentRoomCode.split('').reduce((acc, char) => {
-                    return acc + char.charCodeAt(0);
-                }, 0);
+            return acc + char.charCodeAt(0);
+        }, 0);
             }
-            
-            logMessage(`Using seed ${seedNumber} for card shuffling`, 'info');
-            
+        
+        logMessage(`Using seed ${seedNumber} for card shuffling`, 'info');
+        
             // Use deterministic shuffle based on seed so all players see same order
-            deterministicShuffle(gameState.gameCards, seedNumber);
-            
+        deterministicShuffle(gameState.gameCards, seedNumber);
+        
             // Always use all 15 questions - don't limit them
             gameState.totalRounds = gameState.gameCards.length;
-            gameState.currentCardIndex = -1;
-            
+        gameState.currentCardIndex = -1;
+        
             logMessage(`Initialized ${gameState.gameCards.length} game cards for play`, 'success');
             return true;
         } catch (error) {
@@ -1729,18 +1777,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 gameState.currentCardIndex = forcedCardIndex;
                 gameState.roundNumber = forcedCardIndex + 1;
             } else {
-                gameState.currentCardIndex++;
-                gameState.roundNumber++;
+        gameState.currentCardIndex++;
+        gameState.roundNumber++;
             }
-            
+        
             // Check if we've reached the end of rounds
             if (gameState.currentCardIndex >= gameState.gameCards.length || 
                 gameState.roundNumber > gameState.totalRounds) {
-                endGame();
-                return;
-            }
-            
-            const currentCard = gameState.gameCards[gameState.currentCardIndex];
+            endGame();
+            return;
+        }
+        
+        const currentCard = gameState.gameCards[gameState.currentCardIndex];
             logMessage(`Starting round ${gameState.roundNumber} with card: ${currentCard.question}`, 'info');
             
             // Reset round state
@@ -1791,11 +1839,11 @@ document.addEventListener('DOMContentLoaded', function() {
             if (isHost) {
                 sendRoomMessage({
                     type: 'ROUND_SYNC',
-                    roomCode: currentRoomCode,
-                    roundNumber: gameState.roundNumber,
+                roomCode: currentRoomCode,
+                roundNumber: gameState.roundNumber,
                     currentCardIndex: gameState.currentCardIndex,
-                    hostScore: gameState.hostScore,
-                    guestScore: gameState.guestScore,
+                hostScore: gameState.hostScore,
+                guestScore: gameState.guestScore,
                     timestamp: Date.now()
                 });
             }
@@ -1844,11 +1892,11 @@ document.addEventListener('DOMContentLoaded', function() {
         answerFeedback.style.display = 'block';
         
         // Update score
-        if (isCorrect) {
+                if (isCorrect) {
             if (isHost) {
                 gameState.hostScore++;
                 gameState.yourScore = gameState.hostScore;
-            } else {
+                } else {
                 gameState.guestScore++;
                 gameState.yourScore = gameState.guestScore;
             }
@@ -1857,10 +1905,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Send answer to other player
         sendRoomMessage({
-            type: 'ANSWER_SUBMITTED',
-            roomCode: currentRoomCode,
-            senderId: firebaseUid,
-            senderUsername: playerUsername,
+                    type: 'ANSWER_SUBMITTED',
+                    roomCode: currentRoomCode,
+                    senderId: firebaseUid,
+                    senderUsername: playerUsername,
             isHost: isHost,
             optionIndex: optionIndex,
             optionText: optionText,
@@ -1917,7 +1965,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showSuccessToast('Game Over', "It's a tie! Both players scored " + gameState.yourScore + " points.", 5);
         } else if (youWon) {
             showSuccessToast('Game Over', 'Congratulations! You won with ' + gameState.yourScore + ' points!', 5);
-        } else {
+            } else {
             showSuccessToast('Game Over', 'You lost with ' + gameState.yourScore + ' points.', 5);
         }
     }
@@ -2131,7 +2179,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="toast-header">
                     <strong>${title}</strong>
                     <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
-                </div>
+            </div>
                 <div class="toast-body">${message}</div>
             </div>
         `;
@@ -2261,4 +2309,174 @@ document.addEventListener('DOMContentLoaded', function() {
         endGame();
         showSuccessToast('Debug', 'Forced game end', 3);
     };
+
+    // Handle player leaving the room
+    function handlePlayerLeft(message) {
+        if (message.roomCode !== currentRoomCode) {
+            return; // Not for our room
+        }
+        
+        logMessage(`Player left: ${message.senderUsername}`, 'info');
+        
+        const leftPlayerIsHost = message.isHost === true;
+        const isSelf = message.senderId === firebaseUid;
+        
+        if (!isSelf) {
+            // Show notification
+            if (leftPlayerIsHost) {
+                showSuccessToast('Host Left', `The host (${message.senderUsername}) has left the room.`, 5);
+                
+                // If host left and we're guest, return to lobby
+                if (!isHost) {
+                    showSuccessToast('Game Ended', 'The game has ended because the host left.', 5);
+                    
+                    // Reset room state and return to lobby
+                    resetRoomState();
+                    switchSection('lobbySection');
+                }
+            } else {
+                showSuccessToast('Guest Left', `${message.senderUsername} has left the room.`, 5);
+                
+                // If guest left and we're host, disable start button
+                if (isHost) {
+                    elements.create.startGameBtn.disabled = true;
+                    
+                    // Remove the guest from player list
+                    const playersList = elements.create.playersList;
+                    if (playersList) {
+                        const playerItems = Array.from(playersList.querySelectorAll('li'));
+                        playerItems.forEach(item => {
+                            if (item.textContent.includes(message.senderUsername) && 
+                                !item.textContent.includes('Host')) {
+                                item.remove();
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    // Leave the current room
+    function leaveRoom(asHost) {
+        if (!currentRoomCode) {
+            return;
+        }
+        
+        logMessage(`Leaving room ${currentRoomCode}`, 'info');
+        
+        // Send leave message to both app endpoint and room topic for redundancy
+        try {
+            // Send to application endpoint
+            if (stompClient && stompClient.connected) {
+                stompClient.send(CONFIG.SOCKET.ENDPOINTS.LEAVE, 
+                    {
+                        firebaseUid: firebaseUid,
+                        roomCode: currentRoomCode
+                    }, 
+                    JSON.stringify({
+                        type: 'LEAVE_ROOM',
+                        roomCode: currentRoomCode,
+                        senderId: firebaseUid,
+                        senderUsername: playerUsername,
+                        timestamp: Date.now(),
+                        isHost: asHost
+                    })
+                );
+                
+                // Also send directly to room topic
+                stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+                    {
+                        firebaseUid: firebaseUid,
+                        roomCode: currentRoomCode
+                    }, 
+                    JSON.stringify({
+                        type: 'LEAVE_ROOM',
+                        roomCode: currentRoomCode,
+                        senderId: firebaseUid,
+                        senderUsername: playerUsername,
+                        timestamp: Date.now(),
+                        isHost: asHost
+                    })
+                );
+            }
+        } catch (e) {
+            logMessage(`Error sending leave message: ${e.message}`, 'error');
+        }
+        
+        // Unsubscribe from room topic
+        try {
+            if (stompClient && stompClient.subscriptions && stompClient.subscriptions['room-subscription']) {
+                stompClient.unsubscribe('room-subscription');
+                logMessage('Unsubscribed from room topic', 'info');
+            }
+        } catch (e) {
+            logMessage(`Error unsubscribing from room: ${e.message}`, 'warning');
+        }
+        
+        // Clear host presence interval if host
+        if (isHost && hostPresenceInterval) {
+            clearInterval(hostPresenceInterval);
+            hostPresenceInterval = null;
+            logMessage('Cleared host presence interval', 'info');
+        }
+        
+        // Reset room state
+        resetRoomState();
+        
+        // Update UI based on whether we were host or guest
+        if (asHost) {
+            elements.create.roomInfo.style.display = 'none';
+            elements.create.roomPlayers.style.display = 'none';
+            elements.create.createRoomBtn.disabled = false;
+        } else {
+            elements.join.joinedRoomInfo.style.display = 'none';
+            elements.join.joinedRoomPlayers.style.display = 'none';
+            elements.join.joinRoomBtn.disabled = false;
+            elements.join.joinRoomBtn.style.display = '';
+            elements.join.joinRoomCodeInput.style.display = '';
+            
+            // Remove any joining status
+            const joiningStatus = document.getElementById('joining-status');
+            if (joiningStatus) {
+                joiningStatus.remove();
+            }
+        }
+        
+        // Return to lobby
+        switchSection('lobbySection');
+        
+        showSuccessToast('Success', 'You have left the room', 3);
+    }
+    
+    // Reset room state variables
+    function resetRoomState() {
+        currentRoomCode = '';
+        isHost = false;
+        
+        // Clear player lists
+        if (elements.create.playersList) {
+            elements.create.playersList.innerHTML = '';
+        }
+        if (elements.join.joinedPlayersList) {
+            elements.join.joinedPlayersList.innerHTML = '';
+        }
+        
+        // Reset game state
+        gameState = {
+            roundNumber: 0,
+            hostScore: 0,
+            guestScore: 0,
+            yourScore: 0,
+            opponentScore: 0,
+            selectedOption: null,
+            hasAnswered: false,
+            opponentAnswered: false,
+            gameCards: [],
+            currentCardIndex: -1,
+            totalRounds: 15
+        };
+        
+        logMessage('Room state reset', 'info');
+    }
 });
