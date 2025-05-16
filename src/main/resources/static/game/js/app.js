@@ -20,7 +20,15 @@ document.addEventListener('DOMContentLoaded', function() {
         opponentAnswered: false,
         gameCards: [],
         currentCardIndex: -1,
-        totalRounds: 10
+        totalRounds: 10,
+        syncAttempts: 0,
+        lastSyncTimestamp: 0,
+        gameStarted: false,
+        gameEnded: false,
+        startTimestamp: 0,
+        lastAnswerTime: 0,
+        optionsSeed: 0,
+        connectionRetries: 0
     };
 
     // DOM Elements
@@ -538,28 +546,9 @@ document.addEventListener('DOMContentLoaded', function() {
             logMessage('Cleared previous host presence interval', 'info');
         }
         
-        // Send an immediate presence message to quickly inform any waiting guests
-        if (isHost && currentRoomCode && stompClient && stompClient.connected) {
-            logMessage('Sending immediate host presence message', 'info');
-            // Send a presence message to the room
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
-                { firebaseUid: firebaseUid },
-                JSON.stringify({
-                    type: 'HOST_PRESENCE',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now(),
-                    isHost: true
-                })
-            );
-        }
-        
-        // Set up a new interval to send messages every 5 seconds
-        // More frequent than before (was 10s) to improve responsiveness
+        // Start new interval
         hostPresenceInterval = setInterval(() => {
-            if (isHost && currentRoomCode && stompClient && stompClient.connected) {
-                // Send a presence message to the room
+            if (stompClient && stompClient.connected && currentRoomCode && isHost) {
                 stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
                     { firebaseUid: firebaseUid },
                     JSON.stringify({
@@ -567,28 +556,40 @@ document.addEventListener('DOMContentLoaded', function() {
                         roomCode: currentRoomCode,
                         senderId: firebaseUid,
                         senderUsername: playerUsername,
-                        timestamp: Date.now(),
-                        isHost: true
+                        timestamp: Date.now()
                     })
                 );
-                
-                if (CONFIG.RELIABILITY.VERBOSE_LOGGING) {
-                    logMessage('Sent host presence message', 'info');
-                }
-            } else if (hostPresenceInterval && !isHost) {
-                // No longer host, clear the interval
+            } else if (!stompClient || !stompClient.connected) {
                 clearInterval(hostPresenceInterval);
-                hostPresenceInterval = null;
-                logMessage('Cleared host presence interval (no longer host)', 'info');
-            } else if (hostPresenceInterval && !currentRoomCode) {
-                // No active room, clear the interval
-                clearInterval(hostPresenceInterval);
-                hostPresenceInterval = null;
-                logMessage('Cleared host presence interval (no active room)', 'info');
+                logMessage('Stopping host presence messages due to disconnection', 'warning');
             }
-        }, 5000); // Every 5 seconds
+        }, 5000); // Send every 5 seconds
         
-        logMessage('Set up host presence interval (every 5s)', 'info');
+        logMessage('Set up host presence interval', 'info');
+    }
+
+    // Update the players list in the UI
+    function updatePlayersList() {
+        // Clear existing list
+        if (elements.create.playersList) {
+            elements.create.playersList.innerHTML = '';
+        }
+        
+        // Add current player (host) to the list
+        const hostItem = document.createElement('li');
+        hostItem.className = 'list-group-item';
+        hostItem.innerHTML = `
+            <i class="fas fa-user player-icon"></i>
+            ${playerUsername}
+            <span class="badge bg-primary host-badge">Host</span>
+        `;
+        
+        if (elements.create.playersList) {
+            elements.create.playersList.appendChild(hostItem);
+            logMessage('Added host to players list', 'info');
+        } else {
+            logMessage('Could not update players list - element not found', 'error');
+        }
     }
 
     // Send a message to the current room topic
@@ -1135,8 +1136,28 @@ document.addEventListener('DOMContentLoaded', function() {
     // Handle incoming WebSocket messages
     function onMessageReceived(payload) {
         try {
-            const message = JSON.parse(payload.body);
-            logMessage(`Received message: ${message.type}`, 'info');
+            let message;
+            try {
+                message = JSON.parse(payload.body);
+                
+                // Check for nested type issue (common error from logs)
+                if (typeof message.type === 'object' && message.type.type) {
+                    logMessage(`Fixing nested type issue in message: ${JSON.stringify(message.type)}`, 'warning');
+                    message = message.type; // Extract the actual message from the nested structure
+                }
+                
+                // Validate message has required fields
+                if (!message.type) {
+                    logMessage(`Message without proper type: ${payload.body.substring(0, 100)}...`, 'error');
+                    return;
+                }
+                
+                logMessage(`Received message: ${message.type}`, 'info');
+            } catch (parseError) {
+                logMessage(`Error parsing message: ${parseError.message}`, 'error');
+                logMessage(`Raw payload: ${payload.body.substring(0, 100)}...`, 'error');
+                return;
+            }
             
             // Handle different message types
             switch (message.type) {
@@ -1254,6 +1275,50 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                 default:
                     logMessage(`Unhandled message type: ${message.type}`, 'warning');
+                    // If it has roomCode, try to handle as a general message
+                    if (message.roomCode === currentRoomCode) {
+                        logMessage('Attempting to process as a general room message', 'info');
+                        // If it has a sender, update the players list
+                        if (message.senderUsername && message.senderId) {
+                            const isMessageFromHost = message.isHost === true;
+                            if (isMessageFromHost && !isHost) {
+                                // Add host to guest's list
+                                const hostItem = document.createElement('li');
+                                hostItem.className = 'list-group-item';
+                                hostItem.innerHTML = `
+                                    <i class="fas fa-user player-icon"></i>
+                                    ${message.senderUsername}
+                                    <span class="badge bg-primary host-badge">Host</span>
+                                `;
+                                
+                                const existingHost = Array.from(elements.join.joinedPlayersList.children)
+                                    .some(item => item.textContent.includes(message.senderUsername));
+                                    
+                                if (!existingHost) {
+                                    elements.join.joinedPlayersList.appendChild(hostItem);
+                                    elements.join.joinedRoomInfo.style.display = 'block';
+                                    elements.join.joinedRoomPlayers.style.display = 'block';
+                                }
+                            } else if (isHost && !isMessageFromHost) {
+                                // Add guest to host's list
+                                const guestItem = document.createElement('li');
+                                guestItem.className = 'list-group-item';
+                                guestItem.innerHTML = `
+                                    <i class="fas fa-user player-icon"></i>
+                                    ${message.senderUsername}
+                                    <span class="badge bg-secondary host-badge">Guest</span>
+                                `;
+                                
+                                const existingGuest = Array.from(elements.create.playersList.children)
+                                    .some(item => item.textContent.includes(message.senderUsername));
+                                    
+                                if (!existingGuest) {
+                                    elements.create.playersList.appendChild(guestItem);
+                                    elements.create.startGameBtn.disabled = false;
+                                }
+                            }
+                        }
+                    }
                     break;
             }
             
@@ -1593,25 +1658,64 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedOption: null,
             hasAnswered: false,
             opponentAnswered: false,
-            gameCards: [...STATIC_CARDS], // Use static cards instead of CONFIG.GAME.CARDS
+            gameCards: [],
             currentCardIndex: -1,
-            totalRounds: 10 // Hardcode total rounds or use STATIC_CARDS.length
+            totalRounds: 10, // Default value
+            gameStarted: true,
+            gameEnded: false,
+            startTimestamp: Date.now(),
+            gameStartedBy: message.senderId,
+            lastSyncTimestamp: 0
         };
+        
+        // Clone the static cards to prevent modifications to the original array
+        if (STATIC_CARDS && Array.isArray(STATIC_CARDS) && STATIC_CARDS.length > 0) {
+            gameState.gameCards = JSON.parse(JSON.stringify(STATIC_CARDS));
+            logMessage(`Loaded ${gameState.gameCards.length} cards from static data`, 'info');
+            
+            // Set total rounds based on available cards, capped at 10
+            gameState.totalRounds = Math.min(gameState.gameCards.length, 10);
+        } else {
+            logMessage('No static cards available, using fallback cards', 'error');
+            
+            // Fallback cards
+            gameState.gameCards = [
+                {
+                    front: "What is the tallest mountain in the world?",
+                    back: "Mount Everest",
+                    options: ["Mount Everest", "K2", "Mount Kilimanjaro", "Denali"]
+                },
+                {
+                    front: "What is the capital of France?",
+                    back: "Paris",
+                    options: ["Paris", "London", "Berlin", "Madrid"]
+                },
+                {
+                    front: "Who wrote 'Romeo and Juliet'?",
+                    back: "William Shakespeare",
+                    options: ["William Shakespeare", "Charles Dickens", "Jane Austen", "Mark Twain"]
+                }
+            ];
+        }
         
         // Send acknowledgment if we're a guest
         if (!isHost) {
             sendGameStartAcknowledgment();
         }
         
-        // Deterministically shuffle the cards using room code as seed
+        // Use deterministic shuffle with consistent seed for both players
         const seed = currentRoomCode.split('').reduce((acc, char) => {
             return acc + char.charCodeAt(0);
         }, 0);
         
+        logMessage(`Shuffling cards with seed: ${seed}`, 'info');
+        
+        // Shuffle the cards deterministically so both players see the same order
         deterministicShuffle(gameState.gameCards, seed);
         
         // Limit number of cards to total rounds
         if (gameState.gameCards.length > gameState.totalRounds) {
+            logMessage(`Limiting to ${gameState.totalRounds} rounds from ${gameState.gameCards.length} cards`, 'info');
             gameState.gameCards = gameState.gameCards.slice(0, gameState.totalRounds);
         }
         
@@ -1634,10 +1738,16 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show a toast notification
         showSuccessToast('Game started!', 'The game has begun. Good luck!');
         
-        // Start first round after a short delay to ensure both players are in game view
+        // Start first round after a delay to ensure both players are in game view
+        // Use a longer delay for the guest to ensure the host has started first
+        const startDelay = isHost ? 1000 : 1500;
+        
         setTimeout(() => {
             startNextRound();
-        }, 1000);
+            
+            // Send additional sync message for redundancy
+            setTimeout(sendRoundSyncMessage, 1000);
+        }, startDelay);
     }
     
     // Send acknowledgment that guest received game start message
@@ -1817,6 +1927,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
+            // Create comprehensive sync data
             const roundSyncData = {
                 roomCode: currentRoomCode,
                 roundNumber: gameState.roundNumber,
@@ -1828,27 +1939,66 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasAnswered: gameState.hasAnswered,
                 opponentAnswered: gameState.opponentAnswered,
                 totalCards: gameState.gameCards.length,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                seed: currentRoomCode.split('').reduce((acc, char) => 
+                    acc + char.charCodeAt(0), 0),
+                totalRounds: gameState.totalRounds,
+                options: currentCard.options
             };
             
-            // Send sync message with detailed information
-            stompClient.send(CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
+            // Send full sync message
+            const fullMessage = {
+                type: 'ROUND_SYNC',
+                roomCode: currentRoomCode,
+                senderId: firebaseUid,
+                senderUsername: playerUsername,
+                timestamp: Date.now(),
+                syncData: roundSyncData,
+                isHost: isHost
+            };
+            
+            // Ensure we're not flooding the connection
+            const now = Date.now();
+            if (gameState.lastSyncTimestamp && (now - gameState.lastSyncTimestamp < 200)) {
+                logMessage('Throttling sync message - too frequent', 'warning');
+                return;
+            }
+            
+            // Update last sync timestamp
+            gameState.lastSyncTimestamp = now;
+            
+            // Send to room topic
+            stompClient.send(
+                CONFIG.SOCKET.ROOM_TOPIC_PREFIX + currentRoomCode, 
                 { 
                     firebaseUid: firebaseUid,
                     roomCode: currentRoomCode 
                 }, 
-                JSON.stringify({
-                    type: 'ROUND_SYNC',
-                    roomCode: currentRoomCode,
-                    senderId: firebaseUid,
-                    senderUsername: playerUsername,
-                    timestamp: Date.now(),
-                    syncData: roundSyncData,
-                    isHost: isHost
-                })
+                JSON.stringify(fullMessage)
             );
             
             logMessage(`Sent round sync message for round ${gameState.roundNumber}`, 'info');
+            
+            // If players are still not synced after multiple attempts, try alternative approach
+            if (gameState.syncAttempts > 3) {
+                // Send a direct message to self and to the other player
+                setTimeout(() => {
+                    if (stompClient && stompClient.connected) {
+                        stompClient.send(
+                            '/app/game.nextRound', 
+                            { 
+                                firebaseUid: firebaseUid,
+                                roomCode: currentRoomCode 
+                            }, 
+                            JSON.stringify(fullMessage)
+                        );
+                        logMessage('Sent alternative sync message via app endpoint', 'info');
+                    }
+                }, 300);
+            }
+            
+            // Increment sync attempts counter
+            gameState.syncAttempts = (gameState.syncAttempts || 0) + 1;
         } catch (error) {
             logMessage(`Error sending round sync: ${error.message}`, 'error');
         }
