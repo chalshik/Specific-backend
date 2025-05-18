@@ -12,14 +12,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class GameService {
     private static final Logger logger = LoggerFactory.getLogger(GameService.class);
     private ConcurrentHashMap<String, GameRoom> activeGames = new ConcurrentHashMap<>();
-    
+    public List<String> getRooms(){
+        List<String> rooms = new ArrayList<>();
+        Set<String> activeroom = activeGames.keySet();
+        for(String code :activeroom){
+            rooms.add(code);
+        }
+        return rooms;
+    }
     public GameRoom createGame(Player player1) {
         logger.info("Creating new game room for player: {}", player1.getId());
         String code = generateGameCode();

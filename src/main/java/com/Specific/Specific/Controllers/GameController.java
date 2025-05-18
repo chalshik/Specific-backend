@@ -17,6 +17,8 @@ import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/game")
 public class GameController {
@@ -42,7 +44,10 @@ public class GameController {
         GameRoom gameRoom = gameService.createGame(player);
         return new CreatedRoom(gameRoom.getRoomcode());
     }
-
+    @GetMapping("/rooms")
+    public List<String> getRooms(){
+        return gameService.getRooms();
+    }
     @PostMapping("/join/{gameCode}")
     public ResponseEntity<ApiResponse> joinGame(@RequestBody Player player, @PathVariable String gameCode) {
         logger.info("Player {} requesting to join game: {}", player.getId(), gameCode);
