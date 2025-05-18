@@ -3,6 +3,8 @@ package com.Specific.Specific.Services;
 import com.Specific.Specific.Models.RequestModels.RequestTranslation;
 import com.Specific.Specific.Models.ResponseModels.ResponseTranslation;
 import com.Specific.Specific.config.DeeplConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Async;
@@ -11,8 +13,10 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -22,6 +26,7 @@ import java.util.concurrent.CompletableFuture;
  */
 @Service
 public class TranslationService {
+    private static final Logger logger = LoggerFactory.getLogger(TranslationService.class);
     private final WebClient webClient;
     private final DeeplConfig deeplConfig;
     
@@ -35,6 +40,7 @@ public class TranslationService {
     public TranslationService(WebClient.Builder webClientBuilder, DeeplConfig deeplConfig) {
         this.deeplConfig = deeplConfig;
         this.webClient = webClientBuilder.baseUrl(deeplConfig.getApiUrl()).build();
+        logger.info("TranslationService initialized with API URL: {}", deeplConfig.getApiUrl());
     }
     
     /**
@@ -69,26 +75,81 @@ public class TranslationService {
             return CompletableFuture.failedFuture(new RuntimeException("Word and destination language cannot be empty"));
         }
 
+        logger.info("Requesting translation for '{}' to {}", request.getWord(), request.getDest_lang());
+        
+        // Verify API key is available
+        if (deeplConfig.getApiKey() == null || deeplConfig.getApiKey().isEmpty() || 
+            deeplConfig.getApiKey().equals("your_api_key_for_dev")) {
+            logger.error("DeepL API key is missing or invalid");
+            return CompletableFuture.failedFuture(
+                new RuntimeException("Translation service unavailable: API key configuration error"));
+        }
+        
+        logger.debug("Using DeepL API key: {}", 
+            deeplConfig.getApiKey().length() > 5 ? deeplConfig.getApiKey().substring(0, 5) + "..." : "invalid");
+        
         // Prepare DeepL API request parameters
         MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
         formData.add("text", request.getWord());
         formData.add("target_lang", request.getDest_lang());
+        
+        // For DeepL API, also add source_lang=auto to detect language automatically
+        formData.add("source_lang", "auto");
 
         // Add context if available (improves translation accuracy)
         if (request.getContext() != null && !request.getContext().isEmpty()) {
             formData.add("context", request.getContext());
         }
 
-        // Execute the API call to DeepL
-        Mono<ResponseTranslation> responseTranslationMono = webClient.post()
-                .uri("") // The path after the base URL
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-                .header("Authorization", "DeepL-Auth-Key " + deeplConfig.getApiKey())
-                .body(BodyInserters.fromFormData(formData))
-                .retrieve()
-                .bodyToMono(ResponseTranslation.class);
+        // Log complete request for debugging
+        logger.debug("DeepL API request: {}", formData);
+        logger.debug("DeepL API URL: {}", deeplConfig.getApiUrl());
 
-        // Convert the Mono to CompletableFuture and return
-        return responseTranslationMono.toFuture();
+        // Execute the API call to DeepL
+        try {
+            return webClient.post()
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .header("Authorization", "DeepL-Auth-Key " + deeplConfig.getApiKey())
+                    .body(BodyInserters.fromFormData(formData))
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), response -> {
+                        logger.error("DeepL API client error: {} {}", 
+                            response.statusCode().value(), response.statusCode().toString());
+                        return response.bodyToMono(String.class)
+                            .flatMap(body -> {
+                                logger.error("DeepL API error response body: {}", body);
+                                return Mono.error(new RuntimeException("DeepL API client error: " + response.statusCode()));
+                            });
+                    })
+                    .onStatus(status -> status.is5xxServerError(), response -> {
+                        logger.error("DeepL API server error: {} {}", 
+                            response.statusCode().value(), response.statusCode().toString());
+                        return Mono.error(new RuntimeException("DeepL API server error: " + response.statusCode()));
+                    })
+                    .bodyToMono(ResponseTranslation.class)
+                    .doOnSuccess(response -> {
+                        if (response == null) {
+                            logger.error("Received null response from DeepL API");
+                        } else if (response.getTranslations() == null || response.getTranslations().isEmpty()) {
+                            logger.error("Translation response contains no translations");
+                        } else {
+                            logger.info("Successfully received translation: {} (detected: {})", 
+                                response.getText(), response.getDet_lang());
+                        }
+                    })
+                    .doOnError(error -> {
+                        logger.error("Error receiving translation: {}", error.getMessage(), error);
+                        if (error instanceof WebClientResponseException) {
+                            WebClientResponseException wcre = (WebClientResponseException) error;
+                            logger.error("Response status: {}, body: {}", 
+                                wcre.getStatusCode(), wcre.getResponseBodyAsString());
+                        }
+                    })
+                    .toFuture();
+        } catch (Exception e) {
+            logger.error("Exception during translation request: {}", e.getMessage(), e);
+            return CompletableFuture.failedFuture(
+                new RuntimeException("Translation request failed: " + e.getMessage(), e));
+        }
     }
 }

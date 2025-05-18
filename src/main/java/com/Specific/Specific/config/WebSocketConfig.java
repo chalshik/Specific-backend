@@ -22,8 +22,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // Register the endpoint clients will use to connect to websocket
         registry.addEndpoint("/ws")  // Clients connect here, e.g. ws://localhost:8080/ws
-                .setAllowedOriginPatterns("*")  // Allow all origins (for dev, change in production)
-                .withSockJS(); // Enable SockJS fallback options for browsers that don't support websocket
+                .setAllowedOriginPatterns("*") ; // Allow all origins (for dev, change in production)
+               // Enable SockJS fallback options for browsers that don't support websocket
                 
         // Set the error handler at the registry level
         registry.setErrorHandler(customErrorHandler());
