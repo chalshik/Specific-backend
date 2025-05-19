@@ -87,11 +87,19 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     /**
      * Using a native query approach for finding due cards by deck.
      * This avoids database-specific date arithmetic functions.
+     * Only considers the most recent review for each card when determining if it's due.
      */
     @Query(nativeQuery = true, 
            value = "SELECT DISTINCT c.* FROM card c " +
-                  "JOIN review r ON c.id = r.card_id " +
-                  "WHERE r.user_id = :userId AND c.deck_id = :deckId " +
+                  "JOIN (" +
+                  "    SELECT r.card_id, MAX(r.review_date) as latest_review_date " +
+                  "    FROM review r " +
+                  "    WHERE r.user_id = :userId " +
+                  "    GROUP BY r.card_id" +
+                  ") latest ON c.id = latest.card_id " +
+                  "JOIN review r ON r.card_id = latest.card_id AND r.review_date = latest.latest_review_date " +
+                  "WHERE c.deck_id = :deckId " +
+                  "AND r.user_id = :userId " +
                   "AND r.review_date + INTERVAL '1 day' * r.interval <= :currentDate")
     List<Card> findDueCardsForDeck(
             @Param("userId") Long userId,
@@ -102,11 +110,19 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
     /**
      * Using a native query approach for finding due cards by book.
      * This avoids database-specific date arithmetic functions.
+     * Only considers the most recent review for each card when determining if it's due.
      */
     @Query(nativeQuery = true, 
            value = "SELECT DISTINCT c.* FROM card c " +
-                  "JOIN review r ON c.id = r.card_id " +
-                  "WHERE r.user_id = :userId AND c.book_id = :bookId " +
+                  "JOIN (" +
+                  "    SELECT r.card_id, MAX(r.review_date) as latest_review_date " +
+                  "    FROM review r " +
+                  "    WHERE r.user_id = :userId " +
+                  "    GROUP BY r.card_id" +
+                  ") latest ON c.id = latest.card_id " +
+                  "JOIN review r ON r.card_id = latest.card_id AND r.review_date = latest.latest_review_date " +
+                  "WHERE c.book_id = :bookId " +
+                  "AND r.user_id = :userId " +
                   "AND r.review_date + INTERVAL '1 day' * r.interval <= :currentDate")
     List<Card> findDueCardsForBook(
             @Param("userId") Long userId,
