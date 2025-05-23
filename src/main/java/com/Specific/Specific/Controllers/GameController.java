@@ -17,7 +17,9 @@ import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/game")
@@ -30,12 +32,12 @@ public class GameController {
         this.gameService = gameService;
         this.messagingTemplate = messagingTemplate;
     }
-    
+
     @PostMapping("/create")
     @ResponseStatus(HttpStatus.CREATED)
     public CreatedRoom createGame(@RequestBody Player player) {
         logger.info("Received request to create a game from player: {}", player.getId());
-        
+
         if (player.getId() == null || player.getId().isEmpty()) {
             logger.warn("Create game request with invalid player data");
             throw new InvalidGameInputException("Player ID cannot be empty");
@@ -49,28 +51,40 @@ public class GameController {
         return gameService.getRooms();
     }
     @PostMapping("/join/{gameCode}")
-    public ResponseEntity<ApiResponse> joinGame(@RequestBody Player player, @PathVariable String gameCode) {
-        logger.info("Player {} requesting to join game: {}", player.getId(), gameCode);
-        
+    public ResponseEntity<Map<String, Object>> joinGame(
+            @RequestBody Player player,
+            @PathVariable String gameCode) {
+
+        // Input validation
         if (player.getId() == null || player.getId().isEmpty()) {
-            logger.warn("Join game request with invalid player data");
             throw new InvalidGameInputException("Player ID cannot be empty");
         }
-        
+
         if (gameCode == null || gameCode.isEmpty()) {
-            logger.warn("Join game request with invalid game code");
             throw new InvalidGameInputException("Game code cannot be empty");
         }
-        
+
+        // Join room
         gameService.joinRoom(player, gameCode);
         GameRoom gameRoom = gameService.getGameRoom(gameCode);
-        
-        // Notify all players about the new player
+
+        // Notify all players
         messagingTemplate.convertAndSend("/topic/game/"+gameCode+"/players", gameRoom.getPlayers());
-        
-        return ResponseEntity.ok(ApiResponse.success("Joined game successfully"));
+
+        // Create response
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "Joined game successfully");
+        response.put("players", gameRoom.getPlayers());
+
+        // Return with explicit status code
+        return new ResponseEntity<>(response, HttpStatus.OK); // 200
+        // OR for creation semantics:
+        // return new ResponseEntity<>(response, HttpStatus.CREATED); // 201
     }
-    
+//    @GetMapping("rooms/players")
+//    public List<Map<String,List<String>>> getPlayers(){
+//        return
+//    }
     @MessageMapping("/game/submit")
     public void submitAnswer(Answer answer) {
         logger.info("Received answer from player {} for game {}", 
