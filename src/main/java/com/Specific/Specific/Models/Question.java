@@ -2,19 +2,19 @@ package com.Specific.Specific.Models;
 
 public class Question {
     private String question;
-    private String answer;
+    private  Integer index;
     private String[] options;
 
-    public Question(String question, String answer, String[] options) {
+    public Question(String question, Integer index, String[] options) {
         this.question = question;
-        this.answer = answer;
+        this.index = index;
         this.options = options;
     }
     public String getQuestion() {
         return question;
     }
-    public String getAnswer() {
-        return answer;
+    public Integer getAnswer() {
+        return index;
     }
     public String[] getOptions() {
         return options;
@@ -25,7 +25,7 @@ public class Question {
     public void setQuestion(String question) {
         this.question = question;
     }
-    public void setAnswer(String answer) {
-        this.answer = answer;
+    public void setAnswer(Integer index) {
+        this.index = index;
     }
 }

@@ -89,7 +89,7 @@ public class GameService {
      * @param gameCode the code of the game room
      * @return true if game started, false otherwise
      */
-   
+
     public boolean startGame(String gameCode) {
         try {
             GameRoom gameRoom = getGameRoom(gameCode);

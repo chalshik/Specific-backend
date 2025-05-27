@@ -1,5 +1,6 @@
 package com.Specific.Specific.Models.Game;
 
+import com.Specific.Specific.Except.GameNotActiveException;
 import com.Specific.Specific.Models.Player;
 import com.Specific.Specific.Models.Question;
 import org.aspectj.weaver.patterns.TypePatternQuestions;
@@ -13,6 +14,7 @@ public class GameRoom {
         WAITING, ACTIVE, FINISHED
     }
     private ConcurrentHashMap<Player,Boolean> answeredPlayers = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<Player,Integer> scores = new ConcurrentHashMap<>();
     private String roomcode;
     private GameStatus status;
     private List<Player> players = new ArrayList<>();
@@ -24,14 +26,30 @@ public class GameRoom {
         this.status = GameStatus.WAITING;
         this.questionIndex = 0;
     }
-    public boolean submitAns(Player player){
+    public Integer getAnsweredPlayersCount(){
+        return answeredPlayers.size();
+    }
+    public boolean submitAns(Player player, Integer answer){
+        if (status != GameStatus.ACTIVE) {
+            throw new GameNotActiveException("Game is not active, cannot submit answer");
+        }
         answeredPlayers.put(player,true);
+        if(getCurrentQuestion().getAnswer().equals(answer)){
+            scores.put(player,scores.getOrDefault(player,0)+1);
+        };
        if(answeredPlayers.size()==players.size()&&questionIndex<questions.size()-1){
             questionIndex++;
             answeredPlayers.clear();
             return true;
         }
         return false;
+    }
+    public ConcurrentHashMap<Player,Integer> getScores(){
+        return scores;
+    }
+    public boolean finishGame(){
+        status = GameStatus.FINISHED;
+        return true;
     }
     public void addPlayer(Player player){
         players.add(player);

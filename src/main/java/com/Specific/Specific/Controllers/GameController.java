@@ -20,6 +20,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/game")
@@ -91,14 +94,14 @@ public class GameController {
             answer.getUsername(), answer.getGameroom());
             
         if (answer.getGameroom() == null || answer.getUsername() == null ||
-            answer.getAnswer() == null || answer.getQuestion() == null) {
+            answer.getIndex() == null) {
             logger.warn("Invalid answer submission data");
             throw new InvalidGameInputException("Invalid answer submission data");
         }
         
         GameRoom gameRoom = gameService.getGameRoom(answer.getGameroom());
         Player player = new Player(answer.getUsername());
-        boolean shouldMoveNext = gameRoom.submitAns(player);
+        boolean shouldMoveNext = gameRoom.submitAns(player,answer.getIndex());
 
         if (shouldMoveNext) {
             Question nextQuestion = gameRoom.getCurrentQuestion();
@@ -113,13 +116,13 @@ public class GameController {
                 gameRoom.setStatus(GameRoom.GameStatus.FINISHED);
                 messagingTemplate.convertAndSend(
                     "/topic/game/" + gameRoom.getRoomcode() + "/end",
-                    "Game has ended"
+                    gameRoom.getScores()
                 );
             }
         } else {
             messagingTemplate.convertAndSend(
                 "/topic/game/" + gameRoom.getRoomcode() + "/answer",
-                answer.getUsername()
+                gameRoom.getAnsweredPlayersCount()
             );
         }
     }
@@ -128,32 +131,51 @@ public class GameController {
     public void handleException(Exception e) {
         logger.error("WebSocket error: {}", e.getMessage(), e);
     }
-    
+
     @PostMapping("/start/{gameCode}")
     public ResponseEntity<ApiResponse> startGame(@PathVariable String gameCode) {
         logger.info("Request to start game: {}", gameCode);
-        
+
         if (gameCode == null || gameCode.isEmpty()) {
             logger.warn("Start game request with invalid game code");
             throw new InvalidGameInputException("Game code cannot be empty");
         }
-        
+
         boolean started = gameService.startGame(gameCode);
-        
+
         if (started) {
             GameRoom gameRoom = gameService.getGameRoom(gameCode);
             Question firstQuestion = gameRoom.getCurrentQuestion();
-            
-            // Notify all clients that the game has started with the first question
+
+            // 1. Immediately notify clients that game is starting
             messagingTemplate.convertAndSend(
-                "/topic/game/" + gameCode + "/questions",
-                firstQuestion
+                    "/topic/game/" + gameCode + "/status",
+                    Map.of("status", "STARTING", "message", "Game will begin in 5 seconds")
             );
-            
+
+            // 2. Schedule the first question after 5 seconds
+            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+            scheduler.schedule(() -> {
+                try {
+                    messagingTemplate.convertAndSend(
+                            "/topic/game/" + gameCode + "/questions",
+                            firstQuestion
+                    );
+
+                    // Optional: Log that question was sent
+                    logger.info("Sent first question to game: {}", gameCode);
+                } catch (Exception e) {
+                    logger.error("Failed to send first question to game {}: {}", gameCode, e.getMessage());
+                }
+            }, 5, TimeUnit.SECONDS);
+
+            // Shutdown the scheduler when done
+            scheduler.shutdown();
+
             return ResponseEntity.ok(ApiResponse.success("Game started successfully"));
         } else {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error("Game could not be started"));
+                    .body(ApiResponse.error("Game could not be started"));
         }
     }
 }

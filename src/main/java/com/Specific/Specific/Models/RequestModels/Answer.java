@@ -1,8 +1,7 @@
 package com.Specific.Specific.Models.RequestModels;
 
 public class Answer {
-    private String answer;
-    private String question;
+    private Integer index;
     private String username;
     private String gameroom;
 
@@ -14,12 +13,13 @@ public class Answer {
         this.gameroom = gameroom;
     }
 
-    public String getAnswer() {
-        return answer;
+
+    public Integer getIndex() {
+        return index;
     }
 
-    public void setAnswer(String answer) {
-        this.answer = answer;
+    public void setIndex(Integer index) {
+        this.index = index;
     }
 
     public String getUsername() {
@@ -30,11 +30,5 @@ public class Answer {
         this.username = username;
     }
 
-    public String getQuestion() {
-        return question;
-    }
 
-    public void setQuestion(String question) {
-        this.question = question;
-    }
 }
