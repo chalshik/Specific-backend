@@ -104,19 +104,17 @@ public class GameController {
         boolean shouldMoveNext = gameRoom.submitAns(player, answer.getIndex());
 
         if (shouldMoveNext) {
-            Question nextQuestion = gameRoom.getCurrentQuestion();
-
-            if (nextQuestion != null) {
-                // Send next question
-                messagingTemplate.convertAndSend(
-                        "/topic/game/" + gameRoom.getRoomcode() + "/questions",
-                        nextQuestion
-                );
-            } else {
+            if(gameRoom.getStatus() == GameRoom.GameStatus.FINISHED) {
                 // Game ended
                 messagingTemplate.convertAndSend(
                         "/topic/game/" + gameRoom.getRoomcode() + "/end",
                         gameRoom.getScores()
+                );
+            } else {
+                // Send next question
+                messagingTemplate.convertAndSend(
+                        "/topic/game/" + gameRoom.getRoomcode() + "/questions",
+                        gameRoom.getCurrentQuestion()
                 );
             }
         } else {

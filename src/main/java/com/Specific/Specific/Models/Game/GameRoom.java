@@ -46,17 +46,14 @@ public class GameRoom {
 
         // All players have answered
         if(answeredPlayers.size() == players.size()) {
-            // If this was the last question
-            if(questionIndex >= questions.size() - 1) {
-                finishGame();
-                return true; // Signal that game should end
-            }
-            // More questions remain
-            else {
+            boolean wasLastQuestion = (questionIndex >= questions.size() - 1);
+            if(!wasLastQuestion) {
                 questionIndex++;
                 answeredPlayers.clear();
-                return true; // Signal to move to next question
+            } else {
+                finishGame();
             }
+            return true;
         }
         return false; // Not all players have answered
     }
