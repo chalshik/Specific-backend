@@ -8,126 +8,66 @@ import java.util.List;
 public class QuestionBank {
     public static List<Question> getQuestions() {
         List<Question> questions = new ArrayList<>();
-
         questions.add(new Question(
-                "What is the capital of France?",
-                0,
-                new String[]{"Paris", "London", "Berlin", "Madrid"}
-        ));
-
-        questions.add(new Question(
-                "Which planet is known as the Red Planet?",
+                "What does the word 'resilient' most nearly mean?",
                 2,
-                new String[]{"Earth", "Venus", "Mars", "Jupiter"}
+                new String[]{"Angry", "Fragile", "Strong after difficulty", "Lazy"}
         ));
 
         questions.add(new Question(
-                "What is the largest ocean on Earth?",
+                "Choose the word closest in meaning to 'meticulous'.",
+                0,
+                new String[]{"Careful", "Careless", "Quick", "Loud"}
+        ));
+
+        questions.add(new Question(
+                "What is the best synonym for 'abundant'?",
+                1,
+                new String[]{"Tiny", "Plentiful", "Rare", "Insufficient"}
+        ));
+
+        questions.add(new Question(
+                "The word 'reluctant' most nearly means:",
                 3,
-                new String[]{"Atlantic Ocean", "Indian Ocean", "Arctic Ocean", "Pacific Ocean"}
+                new String[]{"Happy", "Sure", "Fast", "Unwilling"}
         ));
 
         questions.add(new Question(
-                "Who wrote 'Romeo and Juliet'?",
+                "What is the closest meaning of 'inevitable'?",
+                2,
+                new String[]{"Avoidable", "Confusing", "Certain to happen", "Unfair"}
+        ));
+
+        questions.add(new Question(
+                "What does 'evaluate' mean?",
+                1,
+                new String[]{"Ignore", "Judge or assess", "Compare", "Change"}
+        ));
+
+        questions.add(new Question(
+                "Choose the correct meaning of 'sufficient'.",
                 0,
-                new String[]{"William Shakespeare", "Mark Twain", "Charles Dickens", "Jane Austen"}
+                new String[]{"Enough", "Extra", "Low", "Complex"}
         ));
 
         questions.add(new Question(
-                "What is the boiling point of water at sea level?",
+                "The word 'controversial' means:",
+                3,
+                new String[]{"Normal", "Funny", "Safe", "Causing disagreement"}
+        ));
+
+        questions.add(new Question(
+                "What is the meaning of 'dedicated'?",
                 1,
-                new String[]{"90°C", "100°C", "110°C", "120°C"}
+                new String[]{"Uncertain", "Devoted or committed", "Tired", "Late"}
         ));
 
         questions.add(new Question(
-                "Which element has the chemical symbol 'O'?",
-                1,
-                new String[]{"Gold", "Oxygen", "Hydrogen", "Carbon"}
-        ));
-
-        questions.add(new Question(
-                "What is the smallest prime number?",
-                1,
-                new String[]{"1", "2", "3", "0"}
-        ));
-
-        questions.add(new Question(
-                "Who painted the Mona Lisa?",
-                2,
-                new String[]{"Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Claude Monet"}
-        ));
-
-        questions.add(new Question(
-                "Which country hosted the 2016 Summer Olympics?",
-                1,
-                new String[]{"China", "Brazil", "UK", "Russia"}
-        ));
-
-        questions.add(new Question(
-                "What gas do plants absorb from the atmosphere?",
-                2,
-                new String[]{"Oxygen", "Nitrogen", "Carbon Dioxide", "Helium"}
-        ));
-
-        questions.add(new Question(
-                "What is the hardest natural substance on Earth?",
-                2,
-                new String[]{"Gold", "Iron", "Diamond", "Silver"}
-        ));
-
-        questions.add(new Question(
-                "What is the currency of Japan?",
-                2,
-                new String[]{"Dollar", "Euro", "Yen", "Won"}
-        ));
-
-        questions.add(new Question(
-                "How many continents are there on Earth?",
-                2,
-                new String[]{"5", "6", "7", "8"}
-        ));
-
-        questions.add(new Question(
-                "Who discovered penicillin?",
-                1,
-                new String[]{"Marie Curie", "Alexander Fleming", "Isaac Newton", "Albert Einstein"}
-        ));
-
-        questions.add(new Question(
-                "What is the main ingredient in sushi?",
+                "The word 'enhance' most nearly means:",
                 0,
-                new String[]{"Rice", "Potato", "Bread", "Noodles"}
+                new String[]{"Improve", "Destroy", "Hide", "Avoid"}
         ));
 
-        questions.add(new Question(
-                "Which planet is closest to the Sun?",
-                2,
-                new String[]{"Venus", "Earth", "Mercury", "Mars"}
-        ));
-
-        questions.add(new Question(
-                "What language is primarily spoken in Brazil?",
-                1,
-                new String[]{"Spanish", "Portuguese", "French", "English"}
-        ));
-
-        questions.add(new Question(
-                "In which year did World War II end?",
-                1,
-                new String[]{"1939", "1945", "1950", "1960"}
-        ));
-
-        questions.add(new Question(
-                "Which organ pumps blood throughout the human body?",
-                2,
-                new String[]{"Liver", "Lungs", "Heart", "Kidneys"}
-        ));
-
-        questions.add(new Question(
-                "What is the chemical formula for water?",
-                1,
-                new String[]{"CO2", "H2O", "O2", "NaCl"}
-        ));
 
         return questions;
     }
