@@ -6,8 +6,11 @@ import com.Specific.Specific.Models.Question;
 import org.aspectj.weaver.patterns.TypePatternQuestions;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class GameRoom {
     public enum GameStatus {
@@ -29,23 +32,42 @@ public class GameRoom {
     public Integer getAnsweredPlayersCount(){
         return answeredPlayers.size();
     }
-    public boolean submitAns(Player player, Integer answer){
+    public boolean submitAns(Player player, Integer answer) {
         if (status != GameStatus.ACTIVE) {
             throw new GameNotActiveException("Game is not active, cannot submit answer");
         }
-        answeredPlayers.put(player,true);
-        if(getCurrentQuestion().getAnswer().equals(answer)){
-            scores.put(player,scores.getOrDefault(player,0)+1);
+
+        answeredPlayers.put(player, true);
+
+        // Check if answer is correct
+        if(getCurrentQuestion().getAnswer().equals(answer)) {
+            scores.put(player, scores.getOrDefault(player, 0) + 1);
         };
-       if(answeredPlayers.size()==players.size()&&questionIndex<questions.size()-1){
-            questionIndex++;
-            answeredPlayers.clear();
-            return true;
+
+        // All players have answered
+        if(answeredPlayers.size() == players.size()) {
+            // If this was the last question
+            if(questionIndex >= questions.size() - 1) {
+                finishGame();
+                return true; // Signal that game should end
+            }
+            // More questions remain
+            else {
+                questionIndex++;
+                answeredPlayers.clear();
+                return true; // Signal to move to next question
+            }
         }
-        return false;
+        return false; // Not all players have answered
     }
-    public ConcurrentHashMap<Player,Integer> getScores(){
-        return scores;
+    public Map<String,Integer> getScores(){
+       Map<String, Integer> playerScoresById = scores.entrySet().stream()
+                .collect(Collectors.toMap(
+                        entry -> entry.getKey().getId(),  // key: player ID
+                        Map.Entry::getValue               // value: score
+                ));
+
+        return playerScoresById;
     }
     public boolean finishGame(){
         status = GameStatus.FINISHED;

@@ -101,28 +101,29 @@ public class GameController {
         
         GameRoom gameRoom = gameService.getGameRoom(answer.getGameroom());
         Player player = new Player(answer.getUsername());
-        boolean shouldMoveNext = gameRoom.submitAns(player,answer.getIndex());
+        boolean shouldMoveNext = gameRoom.submitAns(player, answer.getIndex());
 
         if (shouldMoveNext) {
             Question nextQuestion = gameRoom.getCurrentQuestion();
+
             if (nextQuestion != null) {
-                logger.info("Moving to next question in game: {}", answer.getGameroom());
+                // Send next question
                 messagingTemplate.convertAndSend(
-                    "/topic/game/" + gameRoom.getRoomcode() + "/questions",
-                    nextQuestion
+                        "/topic/game/" + gameRoom.getRoomcode() + "/questions",
+                        nextQuestion
                 );
             } else {
-                logger.info("Game {} has ended, no more questions", answer.getGameroom());
-                gameRoom.setStatus(GameRoom.GameStatus.FINISHED);
+                // Game ended
                 messagingTemplate.convertAndSend(
-                    "/topic/game/" + gameRoom.getRoomcode() + "/end",
-                    gameRoom.getScores()
+                        "/topic/game/" + gameRoom.getRoomcode() + "/end",
+                        gameRoom.getScores()
                 );
             }
         } else {
+            // Send answer count update
             messagingTemplate.convertAndSend(
-                "/topic/game/" + gameRoom.getRoomcode() + "/answer",
-                gameRoom.getAnsweredPlayersCount()
+                    "/topic/game/" + gameRoom.getRoomcode() + "/answer",
+                    gameRoom.getAnsweredPlayersCount()
             );
         }
     }
